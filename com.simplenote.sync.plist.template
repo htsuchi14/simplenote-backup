@@ -3,21 +3,26 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.simplenote.backup</string>
+    <string>com.simplenote.sync</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{{INSTALL_DIR}}/venv/bin/python3</string>
-        <string>{{INSTALL_DIR}}/simplenote-backup.py</string>
+        <string>/bin/bash</string>
+        <string>{{INSTALL_DIR}}/simplenote-sync.sh</string>
     </array>
     <key>WorkingDirectory</key>
     <string>{{INSTALL_DIR}}</string>
     <key>StartInterval</key>
     <integer>3600</integer>
     <key>StandardOutPath</key>
-    <string>/tmp/simplenote-backup.log</string>
+    <string>/tmp/simplenote-sync.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/simplenote-backup-error.log</string>
+    <string>/tmp/simplenote-sync-error.log</string>
     <key>RunAtLoad</key>
     <true/>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
 </dict>
 </plist>

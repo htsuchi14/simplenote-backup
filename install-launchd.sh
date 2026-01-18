@@ -1,16 +1,19 @@
 #!/bin/bash
 #
-# Simplenote Backup launchd installer
-# Installs scheduled backup service for macOS
+# Simplenote launchd installer
+# Installs scheduled sync service for macOS
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLIST_NAME="com.simplenote.backup.plist"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 
-echo "=== Simplenote Backup launchd Installer ==="
+PLIST_NAME="com.simplenote.sync.plist"
+SERVICE_NAME="com.simplenote.sync"
+LOG_FILE="/tmp/simplenote-sync.log"
+
+echo "=== Simplenote Sync launchd Installer ==="
 echo ""
 echo "Install directory: $SCRIPT_DIR"
 echo ""
@@ -34,14 +37,19 @@ if [ ! -f "$SCRIPT_DIR/venv/bin/python3" ]; then
 fi
 
 # Unload existing service if running
-if launchctl list | grep -q "$PLIST_NAME" 2>/dev/null; then
+if launchctl list | grep -q "$SERVICE_NAME" 2>/dev/null; then
     echo "Unloading existing service..."
     launchctl unload "$LAUNCH_AGENTS_DIR/$PLIST_NAME" 2>/dev/null || true
 fi
 
 # Generate plist from template
 echo "Generating plist..."
-sed "s|{{INSTALL_DIR}}|$SCRIPT_DIR|g" "$SCRIPT_DIR/$PLIST_NAME.template" > "$SCRIPT_DIR/$PLIST_NAME"
+TEMPLATE_FILE="$SCRIPT_DIR/${PLIST_NAME}.template"
+if [ ! -f "$TEMPLATE_FILE" ]; then
+    echo "Error: Template file not found: $TEMPLATE_FILE"
+    exit 1
+fi
+sed "s|{{INSTALL_DIR}}|$SCRIPT_DIR|g" "$TEMPLATE_FILE" > "$SCRIPT_DIR/$PLIST_NAME"
 
 # Create LaunchAgents directory if needed
 mkdir -p "$LAUNCH_AGENTS_DIR"
@@ -57,15 +65,15 @@ launchctl load "$LAUNCH_AGENTS_DIR/$PLIST_NAME"
 # Verify
 echo ""
 echo "=== Installation Complete ==="
-if launchctl list | grep -q "com.simplenote.backup"; then
+if launchctl list | grep -q "$SERVICE_NAME"; then
     echo "Status: Running"
-    launchctl list | grep "com.simplenote.backup"
+    launchctl list | grep "$SERVICE_NAME"
 else
     echo "Status: Not running (check logs)"
 fi
 
 echo ""
 echo "Commands:"
-echo "  Start now:  launchctl start com.simplenote.backup"
+echo "  Start now:  launchctl start $SERVICE_NAME"
 echo "  Stop:       launchctl unload ~/Library/LaunchAgents/$PLIST_NAME"
-echo "  Logs:       tail -f /tmp/simplenote-backup.log"
+echo "  Logs:       tail -f $LOG_FILE"

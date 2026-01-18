@@ -3,6 +3,7 @@
 
 # Generated launchd plist (contains user-specific paths)
 com.simplenote.backup.plist
+com.simplenote.sync.plist
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -13,6 +13,7 @@ import sys
 import re
 import glob
 import shutil
+from datetime import datetime
 from simperium.core import Api as SimperiumApi
 
 
@@ -33,6 +34,12 @@ def get_default_backup_dir():
     return os.path.join(os.environ['HOME'], 'Dropbox/SimplenoteBackups')
 
 
+def log(message, level="INFO"):
+    """タイムスタンプ付きログ出力"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {level}: {message}")
+
+
 load_env()
 
 APPNAME = 'chalk-bump-f49'
@@ -40,7 +47,7 @@ TOKEN = os.environ.get('TOKEN')
 
 
 def fetch_remote_notes(api):
-    """リモートノートを全て取得"""
+    """リモートノートを全て取得（削除済み含む）"""
     dump = api.note.index(data=True)
     notes = dump['index']
     while 'mark' in dump:
@@ -120,18 +127,25 @@ def get_local_files(backup_dir):
     return files
 
 
-def find_local_match(remote_note, local_files):
+def find_local_match(remote_note, local_files, matched_ids=None):
     """リモートノートに対応するローカルファイルを検索"""
+    if matched_ids is None:
+        matched_ids = set()
+
     remote_content = remote_note['d'].get('content', '')
     remote_title = remote_content.split('\n')[0] if remote_content else ''
 
-    # 完全一致を優先
-    for filepath, local in local_files.items():
+    # 完全一致を優先（既にマッチ済みを除く）
+    for filepath, local in sorted(local_files.items()):
+        if filepath in matched_ids:
+            continue
         if local['content'] == remote_content:
             return filepath, 'identical'
 
-    # タイトル一致
-    for filepath, local in local_files.items():
+    # タイトル一致（既にマッチ済みを除く）
+    for filepath, local in sorted(local_files.items()):
+        if filepath in matched_ids:
+            continue
         if local['title'] == remote_title:
             return filepath, 'title_match'
 
@@ -141,31 +155,40 @@ def find_local_match(remote_note, local_files):
 def analyze_differences(backup_dir):
     """リモートとローカルの差分を分析"""
     if not TOKEN:
-        print("Error: TOKEN not found.")
+        log("TOKEN not found", "ERROR")
         return None
 
     api = SimperiumApi(APPNAME, TOKEN)
 
-    print("Fetching remote notes...", file=sys.stderr)
+    log("Fetching remote notes...")
     remote_notes = fetch_remote_notes(api)
 
-    print("Scanning local files...", file=sys.stderr)
+    log("Scanning local files...")
     local_files = get_local_files(backup_dir)
 
     results = {
         'tag_changes': [],      # タグ（ディレクトリ）変更
         'content_changes': [],  # コンテンツ変更
         'new_notes': [],        # リモートにあってローカルにない
-        'deleted_notes': [],    # ローカルにあってリモートにない（削除済み）
+        'to_trash': [],         # リモートで削除 → ローカルをTRASHへ
+        'orphaned': [],         # ローカルにあってリモートにない（孤立）
         'identical': [],        # 同一
         'remote_count': 0,
-        'local_count': len(local_files)
+        'remote_trashed': 0,
+        'local_count': len([f for f in local_files if not local_files[f]['is_trash']])
     }
 
     matched_local_files = set()
-    active_remote = [n for n in remote_notes if not n['d'].get('deleted')]
-    results['remote_count'] = len(active_remote)
 
+    # アクティブなリモートノート
+    active_remote = [n for n in remote_notes if not n['d'].get('deleted')]
+    # 削除済みリモートノート
+    trashed_remote = [n for n in remote_notes if n['d'].get('deleted')]
+
+    results['remote_count'] = len(active_remote)
+    results['remote_trashed'] = len(trashed_remote)
+
+    # アクティブなリモートノートを処理
     for note in active_remote:
         remote_content = note['d'].get('content', '')
         remote_tags = note['d'].get('tags', [])
@@ -174,7 +197,7 @@ def analyze_differences(backup_dir):
         # 単一タグの場合のみディレクトリ化
         remote_dir_tag = remote_tags[0] if len(remote_tags) == 1 else None
 
-        filepath, match_type = find_local_match(note, local_files)
+        filepath, match_type = find_local_match(note, local_files, matched_local_files)
 
         if filepath:
             matched_local_files.add(filepath)
@@ -188,6 +211,7 @@ def analyze_differences(backup_dir):
                         'old_tag': local['dir_tag'],
                         'new_tag': remote_dir_tag,
                         'content': remote_content,
+                        'tags': remote_tags,
                         'system_tags': remote_system_tags
                     })
                 else:
@@ -211,12 +235,24 @@ def analyze_differences(backup_dir):
                 'dir_tag': remote_dir_tag
             })
 
-    # ローカルにあってリモートにない（削除された可能性）
-    for filepath in local_files:
-        if filepath not in matched_local_files and not local_files[filepath]['is_trash']:
-            results['deleted_notes'].append({
+    # 削除済みリモートノートをチェック（ローカルにあればTRASHへ）
+    for note in trashed_remote:
+        remote_content = note['d'].get('content', '')
+        filepath, match_type = find_local_match(note, local_files, matched_local_files)
+
+        if filepath and not local_files[filepath]['is_trash']:
+            matched_local_files.add(filepath)
+            results['to_trash'].append({
                 'filepath': filepath,
                 'title': local_files[filepath]['title']
+            })
+
+    # ローカルにあってリモートにない（孤立ファイル）
+    for filepath, local in local_files.items():
+        if filepath not in matched_local_files and not local['is_trash']:
+            results['orphaned'].append({
+                'filepath': filepath,
+                'title': local['title']
             })
 
     return results, backup_dir
@@ -244,41 +280,63 @@ def show_status(backup_dir):
     results, _ = result
 
     print(f"\n=== Pull Status ===")
-    print(f"Remote notes: {results['remote_count']}")
+    print(f"Remote notes: {results['remote_count']} (+ {results['remote_trashed']} in trash)")
     print(f"Local files: {results['local_count']}")
     print(f"")
     print(f"Changes from remote:")
     print(f"  - Tag/directory changes: {len(results['tag_changes'])}")
     print(f"  - Content changes: {len(results['content_changes'])}")
     print(f"  - New notes to download: {len(results['new_notes'])}")
-    print(f"  - Local-only (may be deleted): {len(results['deleted_notes'])}")
+    print(f"  - To move to TRASH: {len(results['to_trash'])}")
+    print(f"  - Orphaned (local only): {len(results['orphaned'])}")
     print(f"  - Identical: {len(results['identical'])}")
 
     if results['tag_changes']:
         print(f"\nTag changes (first 10):")
         for item in results['tag_changes'][:10]:
             filename = os.path.basename(item['filepath'])
-            print(f"  {filename}: {item['old_tag']} -> {item['new_tag']}")
+            old = item['old_tag'] or 'root'
+            new = item['new_tag'] or 'root'
+            print(f"  {filename}: {old}/ -> {new}/")
         if len(results['tag_changes']) > 10:
             print(f"  ... and {len(results['tag_changes']) - 10} more")
 
+    if results['to_trash']:
+        print(f"\nTo move to TRASH:")
+        for item in results['to_trash'][:10]:
+            print(f"  {os.path.basename(item['filepath'])}")
 
-def do_pull(backup_dir, dry_run=False):
+    if results['orphaned']:
+        print(f"\nOrphaned files (local only, first 10):")
+        for item in results['orphaned'][:10]:
+            print(f"  {os.path.basename(item['filepath'])}")
+        if len(results['orphaned']) > 10:
+            print(f"  ... and {len(results['orphaned']) - 10} more")
+
+    # 未タグファイル数
+    untagged = len(results['new_notes']) - len([n for n in results['new_notes'] if n['dir_tag']])
+    if untagged > 0:
+        print(f"\nWarning: {untagged} new note(s) have no tag (will be in root)")
+
+
+def do_pull(backup_dir, dry_run=False, trash_orphans=False):
     """リモートの変更をローカルに適用"""
     result = analyze_differences(backup_dir)
     if result is None:
-        return
+        return {'error': True}
 
     results, _ = result
 
-    print(f"\n=== Pull Summary ===")
-    print(f"Tag changes: {len(results['tag_changes'])}")
-    print(f"Content changes: {len(results['content_changes'])}")
-    print(f"New notes: {len(results['new_notes'])}")
-    print(f"Identical: {len(results['identical'])}")
+    log("=== Pull Summary ===")
+    log(f"Tag changes: {len(results['tag_changes'])}")
+    log(f"Content changes: {len(results['content_changes'])}")
+    log(f"New notes: {len(results['new_notes'])}")
+    log(f"To trash: {len(results['to_trash'])}")
+    log(f"Orphaned: {len(results['orphaned'])}")
+    log(f"Identical: {len(results['identical'])}")
 
     if dry_run:
-        print("\n[DRY RUN - No changes made]")
+        log("[DRY RUN - No changes made]")
 
         if results['tag_changes']:
             print("\nWould move (tag change):")
@@ -296,13 +354,52 @@ def do_pull(backup_dir, dry_run=False):
             print("\nWould create:")
             for item in results['new_notes'][:10]:
                 title = item['content'].split('\n')[0][:50] if item['content'] else '(empty)'
-                print(f"  {title}... [tags: {item['tags']}]")
-        return
+                tag_info = f"[{item['dir_tag']}]" if item['dir_tag'] else "[untagged]"
+                print(f"  {title}... {tag_info}")
+
+        if results['to_trash']:
+            print("\nWould move to TRASH:")
+            for item in results['to_trash']:
+                print(f"  {os.path.basename(item['filepath'])}")
+
+        if results['orphaned'] and trash_orphans:
+            print("\nWould move orphaned to TRASH:")
+            for item in results['orphaned'][:10]:
+                print(f"  {os.path.basename(item['filepath'])}")
+
+        return results
 
     # 実際に適用
     moved = 0
     updated = 0
     created = 0
+    trashed = 0
+    untagged_count = 0
+
+    # TRASH ディレクトリ作成
+    trash_dir = os.path.join(backup_dir, 'TRASH')
+    os.makedirs(trash_dir, exist_ok=True)
+
+    # リモートで削除されたノート → ローカルをTRASHへ
+    for item in results['to_trash']:
+        old_path = item['filepath']
+        filename = os.path.basename(old_path)
+        new_path = get_unique_filepath(trash_dir, os.path.splitext(filename)[0], '.md')
+
+        shutil.move(old_path, new_path)
+        log(f"Moved to TRASH: {filename}")
+        trashed += 1
+
+    # 孤立ファイルをTRASHへ（オプション）
+    if trash_orphans:
+        for item in results['orphaned']:
+            old_path = item['filepath']
+            filename = os.path.basename(old_path)
+            new_path = get_unique_filepath(trash_dir, os.path.splitext(filename)[0], '.md')
+
+            shutil.move(old_path, new_path)
+            log(f"Moved orphaned to TRASH: {filename}")
+            trashed += 1
 
     # タグ変更（ディレクトリ移動）
     for item in results['tag_changes']:
@@ -318,7 +415,9 @@ def do_pull(backup_dir, dry_run=False):
         new_path = get_unique_filepath(new_dir, os.path.splitext(filename)[0], '.md')
 
         shutil.move(old_path, new_path)
-        print(f"Moved: {filename} -> {item['new_tag'] or 'root'}/")
+        old_tag = item['old_tag'] or 'root'
+        new_tag = item['new_tag'] or 'root'
+        log(f"Tag changed: {filename} ({old_tag}/ -> {new_tag}/)")
         moved += 1
 
     # コンテンツ変更
@@ -346,7 +445,7 @@ def do_pull(backup_dir, dry_run=False):
             if item['system_tags']:
                 f.write(f"System tags: {', '.join(item['system_tags'])}\n")
 
-        print(f"Updated: {os.path.basename(filepath)}")
+        log(f"Updated: {os.path.basename(filepath)}")
         updated += 1
 
     # 新規ノート
@@ -358,6 +457,7 @@ def do_pull(backup_dir, dry_run=False):
             target_dir = os.path.join(backup_dir, item['dir_tag'])
         else:
             target_dir = backup_dir
+            untagged_count += 1
 
         os.makedirs(target_dir, exist_ok=True)
         filepath = get_unique_filepath(target_dir, filename, '.md')
@@ -370,10 +470,9 @@ def do_pull(backup_dir, dry_run=False):
             if item['system_tags']:
                 f.write(f"System tags: {', '.join(item['system_tags'])}\n")
 
-        print(f"Created: {os.path.basename(filepath)}")
+        tag_info = f"[{item['dir_tag']}]" if item['dir_tag'] else "[untagged]"
+        log(f"Created: {os.path.basename(filepath)} {tag_info}")
         created += 1
-
-    print(f"\nDone: {moved} moved, {updated} updated, {created} created.")
 
     # 空になったディレクトリを削除
     for item in os.listdir(backup_dir):
@@ -381,7 +480,22 @@ def do_pull(backup_dir, dry_run=False):
         if os.path.isdir(item_path) and item not in ['TRASH', '.', '..']:
             if not os.listdir(item_path):
                 os.rmdir(item_path)
-                print(f"Removed empty directory: {item}/")
+                log(f"Removed empty directory: {item}/")
+
+    log(f"=== Pull Complete ===")
+    log(f"Summary: {trashed} trashed, {moved} moved, {updated} updated, {created} created")
+
+    if untagged_count > 0:
+        log(f"Warning: {untagged_count} untagged file(s) in root directory", "WARN")
+
+    return {
+        'trashed': trashed,
+        'moved': moved,
+        'updated': updated,
+        'created': created,
+        'untagged': untagged_count,
+        'orphaned': len(results['orphaned']) if not trash_orphans else 0
+    }
 
 
 def main():
@@ -398,7 +512,7 @@ def main():
     if command == 'status':
         show_status(backup_dir)
     elif command == 'pull':
-        do_pull(backup_dir, dry_run=False)
+        do_pull(backup_dir, dry_run=False, trash_orphans=False)
     elif command == 'dry-run':
         do_pull(backup_dir, dry_run=True)
     else:

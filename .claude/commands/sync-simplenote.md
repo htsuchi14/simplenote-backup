@@ -3,12 +3,15 @@ description: ローカルのノートをSimplenoteに同期（タグ更新含む
 allowed-tools: Bash, Read
 ---
 
-# Simplenote 同期
+# Simplenote 同期（ローカル → リモート）
 
 ## 概要
 
 ローカルのバックアップディレクトリの変更をSimplenoteに同期します。
 **ディレクトリ構成の変更（タグ変更）も反映されます。**
+
+> **双方向同期が必要な場合**: `./simplenote-sync.sh` または `make sync` を使用してください。
+> （Pull→整理→自動タグ付け→Push を一括実行）
 
 ## 現在の状態確認
 

@@ -1,3 +1,6 @@
+sync:
+	./simplenote-sync.sh
+
 run:
 	PYTHONPATH=../simperium-python python3 simplenote-backup.py $(BACKUP_DIR)
 

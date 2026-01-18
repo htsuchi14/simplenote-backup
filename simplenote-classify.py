@@ -80,6 +80,104 @@ def get_existing_tags(backup_dir):
     return sorted(tags)
 
 
+# Keyword patterns for auto-classification
+AUTO_CLASSIFY_RULES = {
+    '仕事': [
+        'タスク', 'task', 'TODO', 'mtg', 'MTG', 'ミーティング', '会議', 'meeting',
+        'プロジェクト', 'project', '進捗', '報告', 'レポート', '業務', '作業',
+        'API', 'AWS', 'サーバー', 'デプロイ', 'deploy', 'バグ', 'bug', 'fix',
+        '環境構築', 'セットアップ', 'setup', 'インストール', 'コード', 'code',
+        '実装', 'implement', '設計', 'design', '仕様', 'spec', 'ドキュメント',
+        'ヘルプ', 'help', 'サポート', 'support', 'チケット', 'ticket', 'issue',
+        'ECS', 'EC2', 'S3', 'Lambda', 'Docker', 'Git', 'PR', 'レビュー', 'review',
+    ],
+    'プログラミング': [
+        'Python', 'JavaScript', 'TypeScript', 'React', 'Next.js', 'Node',
+        'HTML', 'CSS', 'SQL', 'データベース', 'DB', 'Firebase', 'Cognito',
+        'フレームワーク', 'ライブラリ', 'npm', 'pip', 'エラー', 'error',
+        'debug', 'デバッグ', 'テスト', 'test', 'ログ', 'log',
+    ],
+    'ライフ': [
+        '買い物', 'shopping', 'リスト', 'list', '予定', '計画', 'plan',
+        '旅行', 'travel', '食事', 'レストラン', 'restaurant', '料理', 'recipe',
+        '家', 'house', '引越', 'move', '掃除', 'clean', '片付け',
+    ],
+    'ヘルス': [
+        '健康', 'health', '運動', 'exercise', '筋トレ', 'workout', 'ジム', 'gym',
+        '食事', 'diet', '睡眠', 'sleep', '体重', 'weight', 'カロリー', 'calorie',
+        '病院', 'hospital', '薬', 'medicine', '症状', 'symptom',
+    ],
+    '思考': [
+        '考え', 'thought', 'アイデア', 'idea', '気づき', 'insight', '反省',
+        'メモ', 'memo', 'note', 'ノート', '日記', 'diary', 'journal',
+        '振り返り', 'review', '感想', 'impression', '学び', 'learning',
+    ],
+    'ネタ': [
+        'ネタ', '面白い', 'funny', 'ジョーク', 'joke', 'ギャグ',
+        'コント', 'skit', '漫才', '一発', 'ボケ', 'ツッコミ',
+    ],
+    'ゴルフ': [
+        'ゴルフ', 'golf', 'スイング', 'swing', 'パター', 'putter', 'ドライバー',
+        'アイアン', 'iron', 'ラウンド', 'round', 'コース', 'course', 'スコア', 'score',
+    ],
+    '読書': [
+        '本', 'book', '読書', 'reading', '著者', 'author', '感想', '要約', 'summary',
+        '小説', 'novel', 'ビジネス書', '自己啓発', '参考',
+    ],
+}
+
+
+def auto_classify_note(content, filename, existing_tags):
+    """Automatically classify a note based on content and filename keywords"""
+    text = (content + ' ' + filename).lower()
+
+    # Count matches for each tag
+    scores = {}
+    for tag, keywords in AUTO_CLASSIFY_RULES.items():
+        if tag not in existing_tags:
+            continue  # Only use existing tags
+        score = 0
+        for keyword in keywords:
+            if keyword.lower() in text:
+                score += 1
+        if score > 0:
+            scores[tag] = score
+
+    if not scores:
+        return None
+
+    # Return tag with highest score
+    best_tag = max(scores, key=scores.get)
+    return best_tag
+
+
+def auto_classify_all(backup_dir, dry_run=False):
+    """Auto-classify all untagged files in root directory"""
+    existing_tags = get_existing_tags(backup_dir)
+    unclassified = list_unclassified(backup_dir)
+
+    classified = 0
+    skipped = 0
+
+    for note in unclassified:
+        if not note['needs_tag']:
+            continue
+
+        suggested_tag = auto_classify_note(note['content'], note['filename'], existing_tags)
+
+        if suggested_tag:
+            if dry_run:
+                print(f"[DRY RUN] {note['filename']} -> {suggested_tag}")
+            else:
+                apply_tag(backup_dir, note['filename'], suggested_tag)
+            classified += 1
+        else:
+            print(f"[SKIP] {note['filename']} - no matching keywords")
+            skipped += 1
+
+    return classified, skipped
+
+
 def list_unclassified(backup_dir):
     """List files that need classification (no tags or ID-named)"""
     unclassified = []
@@ -276,6 +374,8 @@ def main():
         print("  python3 simplenote-classify.py json [backup_dir]  # JSON output for Claude")
         print("  python3 simplenote-classify.py organize [backup_dir]  # Move tagged files to tag dirs")
         print("  python3 simplenote-classify.py status [backup_dir]  # Show all root files status")
+        print("  python3 simplenote-classify.py auto [backup_dir]  # Auto-classify using keywords")
+        print("  python3 simplenote-classify.py auto --dry-run [backup_dir]  # Preview auto-classify")
         sys.exit(1)
 
     command = sys.argv[1]
@@ -387,6 +487,23 @@ def main():
                 print(f"  {f['filename']} -> {f['tags'][0]}")
             if len(has_tag) > 10:
                 print(f"  ... and {len(has_tag) - 10} more")
+
+    elif command == 'auto':
+        dry_run = '--dry-run' in sys.argv
+        # Get backup_dir from remaining args
+        args = [a for a in sys.argv[2:] if a != '--dry-run']
+        backup_dir = args[0] if args else get_default_backup_dir()
+
+        if dry_run:
+            print("[DRY RUN] Auto-classifying files using keyword matching...\n")
+        else:
+            print("Auto-classifying files using keyword matching...\n")
+
+        classified, skipped = auto_classify_all(backup_dir, dry_run)
+
+        print(f"\nAuto-classify complete: {classified} classified, {skipped} skipped")
+        if skipped > 0:
+            print("(Skipped files need manual classification via /classify)")
 
     else:
         print(f"Unknown command: {command}")

@@ -6,6 +6,7 @@ Simplenoteのノートをローカルにバックアップし、双方向同期�
 
 | スクリプト | 機能 | 方向 |
 |-----------|------|------|
+| `simplenote-sync.sh` | **双方向同期（推奨）** - Pull→Push を自動実行 | Bidirectional |
 | `simplenote-backup.py` | リモートからローカルへ全ノートをダウンロード | Remote → Local |
 | `simplenote-import.py` | ローカルの変更をリモートにプッシュ | Local → Remote |
 | `simplenote-pull.py` | リモートの変更をローカルに反映（差分同期） | Remote → Local |
@@ -135,6 +136,47 @@ Done: 5 created, 10 updated, 3 tags updated, 1962 unchanged.
 
 ---
 
+### simplenote-sync.sh（双方向同期 - 推奨）
+
+Pull（Remote→Local）と Push（Local→Remote）を順番に実行し、ローカルとリモートを同期します。
+未分類ノートはキーワードベースで自動タグ付けされます。
+
+```bash
+# 同期を実行
+./simplenote-sync.sh
+
+# プレビュー（実行せず確認）
+./simplenote-sync.sh --dry-run
+```
+
+**動作フロー:**
+```
+1. Pull (Remote → Local)
+   - リモートの変更をローカルに反映
+   - タグ変更、コンテンツ変更、削除を検出
+
+2. Organize
+   - タグ付きファイルを適切なディレクトリへ移動
+
+3. Auto-classify（キーワードベース）
+   - 未タグファイルをキーワードで自動分類
+   - 分類できないファイルは警告を出力
+
+4. Push (Local → Remote)
+   - ローカルの変更をリモートに反映
+   - 自動分類したタグもプッシュ
+```
+
+**ログ出力:** `/tmp/simplenote-sync.log`
+
+**自動分類できなかったファイルがある場合:**
+```bash
+# Claude Codeで手動分類
+/classify
+```
+
+---
+
 ### simplenote-pull.py（リモート→ローカル差分同期）
 
 リモートの変更をローカルに反映します。タグ変更やコンテンツ変更を検出して適用します。
@@ -154,6 +196,8 @@ Done: 5 created, 10 updated, 3 tags updated, 1962 unchanged.
 - **タグ変更**: リモートでタグを変更 → ローカルのディレクトリを移動
 - **コンテンツ変更**: リモートで編集 → ローカルファイルを更新
 - **新規ノート**: リモートで作成 → ローカルにダウンロード
+- **削除（Trash）**: リモートで削除 → ローカルを`TRASH/`へ移動
+- **孤立ファイル**: ローカルのみに存在するファイルを検出（警告表示）
 
 **使用例（タグ名変更の反映）:**
 ```bash
@@ -165,6 +209,12 @@ Done: 5 created, 10 updated, 3 tags updated, 1962 unchanged.
 # Moved: ファイル1.md -> ヘルス/
 # Moved: ファイル2.md -> ヘルス/
 # Removed empty directory: Health/
+```
+
+**使用例（リモートで削除したノート）:**
+```bash
+./venv/bin/python3 simplenote-pull.py pull
+# [2026-01-18 12:00:00] INFO: Moved to TRASH: 削除したノート.md
 ```
 
 ---
@@ -183,8 +233,9 @@ Done: 5 created, 10 updated, 3 tags updated, 1962 unchanged.
 # 既存タグ一覧
 ./venv/bin/python3 simplenote-classify.py tags
 
-# JSON出力
-./venv/bin/python3 simplenote-classify.py json
+# キーワードベースの自動分類（sync.shで使用）
+./venv/bin/python3 simplenote-classify.py auto
+./venv/bin/python3 simplenote-classify.py auto --dry-run  # プレビュー
 
 # タグを適用（ファイルをディレクトリに移動）
 ./venv/bin/python3 simplenote-classify.py apply <filename> <tag>
@@ -196,11 +247,19 @@ Done: 5 created, 10 updated, 3 tags updated, 1962 unchanged.
 ./venv/bin/python3 simplenote-classify.py organize
 ```
 
-**タグの確認:**
-```bash
-./venv/bin/python3 simplenote-classify.py tags
-```
-既存のディレクトリ名がタグとして使用されます。
+**自動分類の仕組み:**
+
+`auto` コマンドはキーワードマッチングで分類します:
+
+| タグ | キーワード例 |
+|------|------------|
+| 仕事 | タスク, mtg, API, AWS, デプロイ, ヘルプ... |
+| プログラミング | Python, React, Firebase, エラー, テスト... |
+| ライフ | 買い物, 旅行, 料理, 掃除... |
+| ヘルス | 健康, 運動, 筋トレ, 睡眠... |
+| 思考 | アイデア, メモ, 反省, 日記... |
+
+キーワードで判定できないノートは `/classify` で手動分類が必要です。
 
 ---
 
@@ -222,9 +281,18 @@ Claude Codeのカスタムコマンド（スラッシュコマンド）で簡単
 
 #### 🔄 日常的な同期（推奨フロー）
 
+**自動実行（launchd）:** 1時間ごとに自動で双方向同期が実行されます。
+
+**手動実行:**
+```bash
+./simplenote-sync.sh   # Pull → Auto-classify → Push
+```
+
+**Claude Codeで手動実行:**
 ```
 /simplenote-status     # まず状態確認
 /pull-simplenote       # リモートの変更を取得
+/classify              # 未分類ノートをAIで分類（必要な場合）
 /sync-simplenote       # ローカルの変更をプッシュ
 ```
 
@@ -264,10 +332,20 @@ Claude Codeのカスタムコマンド（スラッシュコマンド）で簡単
 
 #### 🗂️ 未分類ノートを整理したい
 
+**方法1: 自動分類（キーワードベース）**
+```bash
+./simplenote-sync.sh   # sync時に自動実行される
+# または
+./venv/bin/python3 simplenote-classify.py auto
+```
+→ キーワードマッチングで高速に分類
+
+**方法2: AI分類（高精度）**
 ```
 /classify
 ```
-→ AIが内容を分析して適切なタグを自動付与
+→ Claude Codeがノート内容を分析して適切なタグを判定
+→ キーワードで分類できなかったノートはこちらで対応
 
 #### ❓ 今どうなってるか確認したい
 
@@ -286,7 +364,12 @@ Claude Codeのカスタムコマンド（スラッシュコマンド）で簡単
 crontab -e
 ```
 
-毎時バックアップ:
+毎時同期（推奨）:
+```cron
+0 * * * * cd ~/simplenote-backup && ./simplenote-sync.sh > /tmp/simplenote-sync.log 2>&1
+```
+
+毎時バックアップのみ:
 ```cron
 0 * * * * cd ~/simplenote-backup && ./venv/bin/python3 simplenote-backup.py > /tmp/simplenote-backup.log 2>&1
 ```
@@ -301,68 +384,42 @@ crontab -e
 #### 初回セットアップ
 
 ```bash
-# インストールスクリプトを実行（plistを自動生成＆登録）
 ./install-launchd.sh
-```
-
-または手動で：
-
-```bash
-# テンプレートからplistを生成
-sed "s|{{INSTALL_DIR}}|$(pwd)|g" com.simplenote.backup.plist.template > com.simplenote.backup.plist
-
-# LaunchAgentsにコピー
-cp com.simplenote.backup.plist ~/Library/LaunchAgents/
-
-# サービスを有効化
-launchctl load ~/Library/LaunchAgents/com.simplenote.backup.plist
 ```
 
 #### 設定内容
 
 | 項目 | 値 |
 |------|-----|
-| サービス名 | `com.simplenote.backup` |
+| サービス名 | `com.simplenote.sync` |
 | 実行間隔 | 1時間ごと（3600秒） |
 | 起動時実行 | あり（RunAtLoad） |
-| ログ出力 | `/tmp/simplenote-backup.log` |
-| エラー出力 | `/tmp/simplenote-backup-error.log` |
+| ログ出力 | `/tmp/simplenote-sync.log` |
+| 実行スクリプト | `simplenote-sync.sh` |
 
 #### 管理コマンド
 
 ```bash
 # 状態確認
 launchctl list | grep simplenote
-# 出力例: 12345  0  com.simplenote.backup
-# (PID, 終了コード, サービス名)
 
-# 手動実行（テスト用）
-launchctl start com.simplenote.backup
+# 手動実行
+launchctl start com.simplenote.sync
 
-# 無効化（一時停止）
-launchctl unload ~/Library/LaunchAgents/com.simplenote.backup.plist
+# 一時停止
+launchctl unload ~/Library/LaunchAgents/com.simplenote.sync.plist
 
-# 再有効化
-launchctl load ~/Library/LaunchAgents/com.simplenote.backup.plist
+# 再開
+launchctl load ~/Library/LaunchAgents/com.simplenote.sync.plist
 
-# plist更新後の再読み込み
-./install-launchd.sh
-
-# 完全にアンインストール
+# アンインストール
 ./uninstall-launchd.sh
 ```
 
 #### ログ確認
 
 ```bash
-# 最新のログを確認
-cat /tmp/simplenote-backup.log
-
-# リアルタイムでログを監視
-tail -f /tmp/simplenote-backup.log
-
-# エラーログを確認
-cat /tmp/simplenote-backup-error.log
+tail -f /tmp/simplenote-sync.log
 ```
 
 #### 動作確認
@@ -372,13 +429,20 @@ cat /tmp/simplenote-backup-error.log
 launchctl list | grep simplenote
 
 # 2. 手動実行してテスト
-launchctl start com.simplenote.backup
+launchctl start com.simplenote.sync
 
 # 3. ログで成功を確認
-cat /tmp/simplenote-backup.log
+tail -30 /tmp/simplenote-sync.log
 # 期待される出力:
-# Starting backup your simplenote to: /Users/xxx/Dropbox/SimplenoteBackups
-# Done: 1981 files (0 in TRASH).
+# [2026-01-18 12:00:00] Simplenote Sync Started
+# [2026-01-18 12:00:00] Step 1: Pull (Remote -> Local)
+# ...
+# [2026-01-18 12:00:05] Step 2: Organize (Move tagged files)
+# [2026-01-18 12:00:05] Step 2.5: Auto-classify (X untagged files)
+# ...
+# [2026-01-18 12:00:10] Step 3: Push (Local -> Remote)
+# ...
+# [2026-01-18 12:00:15] Sync Complete
 ```
 
 #### トラブルシューティング
@@ -386,17 +450,17 @@ cat /tmp/simplenote-backup.log
 **サービスが動かない場合:**
 ```bash
 # エラーログを確認
-cat /tmp/simplenote-backup-error.log
+cat /tmp/simplenote-sync-error.log
 
 # サービスを再登録
-launchctl unload ~/Library/LaunchAgents/com.simplenote.backup.plist
-launchctl load ~/Library/LaunchAgents/com.simplenote.backup.plist
+./uninstall-launchd.sh
+./install-launchd.sh
 ```
 
 **トークン期限切れの場合:**
 1. 新しいトークンを取得（Simplenote Web → DevTools → Cookies）
 2. `.env` ファイルを更新
-3. `launchctl start com.simplenote.backup` で動作確認
+3. `launchctl start com.simplenote.sync` で動作確認
 
 ---
 
@@ -429,48 +493,15 @@ System tags: pinned
 
 ---
 
-## 運用フロー
+## クイックリファレンス
 
-### ケース別クイックリファレンス
-
-| やりたいこと | Claude Code | コマンドライン |
-|-------------|-------------|---------------|
-| 状態確認 | `/simplenote-status` | `simplenote-import.py status` + `simplenote-pull.py status` |
-| スマホの編集を取得 | `/pull-simplenote` | `simplenote-pull.py pull` |
-| ローカル編集を反映 | `/sync-simplenote` | `simplenote-import.py sync` |
-| タグ名変更を反映 | `/pull-simplenote` | `simplenote-pull.py pull` |
-| フルバックアップ | `/backup-simplenote` | `simplenote-backup.py` |
-| 未分類ノート整理 | `/classify` | `simplenote-classify.py` |
-
-### 日常的な同期（コマンドライン）
-
-```bash
-cd ~/simplenote-backup
-
-# 1. リモートの変更をローカルに反映
-./venv/bin/python3 simplenote-pull.py pull
-
-# 2. ローカルの変更をリモートに反映
-./venv/bin/python3 simplenote-import.py sync
-```
-
-### 初回セットアップ
-
-```bash
-# 1. リモートから全ノートをバックアップ
-./venv/bin/python3 simplenote-backup.py
-
-# 2. 未分類ノートを整理（Claude Codeで /classify）
-
-# 3. ローカルの変更をリモートに反映
-./venv/bin/python3 simplenote-import.py sync
-```
-
-### タグ名変更時
-
-1. Simplenote（Web/アプリ）でタグ名を変更
-2. `/pull-simplenote` または `simplenote-pull.py pull` でローカルに反映
-3. 空になった旧ディレクトリは自動削除
+| やりたいこと | コマンド |
+|-------------|---------|
+| **双方向同期（推奨）** | `./simplenote-sync.sh` |
+| 状態確認 | `./venv/bin/python3 simplenote-classify.py status` |
+| フルバックアップ | `./venv/bin/python3 simplenote-backup.py` |
+| 未分類ノート自動分類 | `./venv/bin/python3 simplenote-classify.py auto` |
+| 未分類ノートAI分類 | `/classify`（Claude Code） |
 
 ---
 
@@ -530,13 +561,17 @@ docker run --rm \
 
 ```
 simplenote-backup/
+├── simplenote-sync.sh      # 双方向同期スクリプト（メイン）
 ├── simplenote-backup.py    # フルバックアップ（Remote → Local）
 ├── simplenote-import.py    # プッシュ同期（Local → Remote）
 ├── simplenote-pull.py      # プル同期（Remote → Local, 差分）
 ├── simplenote-classify.py  # 未分類ノートの自動タグ付け
+├── install-launchd.sh      # launchd インストーラー
+├── uninstall-launchd.sh    # launchd アンインストーラー
+├── com.simplenote.sync.plist.template  # launchd設定テンプレート
+├── sync-upstream.sh        # Fork元リポジトリとの同期
 ├── .env                    # トークン設定（要作成）
 ├── .env.example            # 設定ファイルのテンプレート
-├── com.simplenote.backup.plist  # launchd設定
 ├── Makefile                # makeコマンド定義
 ├── Dockerfile              # Docker設定
 └── venv/                   # Python仮想環境
@@ -547,9 +582,9 @@ simplenote-backup/
 ## Makeコマンド
 
 ```bash
+make sync                   # 双方向同期（推奨）
 make run                    # バックアップ実行
-make run BACKUP_DIR=/path   # 指定ディレクトリにバックアップ
-make import IMPORT_DIR=/path  # インポート実行
+make import                 # インポート実行
 make classify-list          # 未分類ファイル一覧
 make classify-tags          # 既存タグ一覧
 make classify-json          # JSON出力
