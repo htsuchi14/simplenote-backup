@@ -196,10 +196,11 @@ Done: 5 created, 10 updated, 3 tags updated, 1962 unchanged.
 ./venv/bin/python3 simplenote-classify.py organize
 ```
 
-**既存タグ例:**
-- 思考, ネタ, 仕事, プログラミング, 読書, ライフ
-- ヘルス, ゴルフ, エッセイ, コラム, ストーリー
-- 大喜利, スケジュール
+**タグの確認:**
+```bash
+./venv/bin/python3 simplenote-classify.py tags
+```
+既存のディレクトリ名がタグとして使用されます。
 
 ---
 
