@@ -36,8 +36,6 @@ allowed-tools: Bash, Read, Write, Edit
 | `/sync-simplenote` | ローカルの変更をリモートに反映 |
 | `/classify` | 未分類ノートをAIで分類 |
 | `/simplenote-status` | 同期状態の確認 |
-| `/troubleshoot` | 同期の問題をトラブルシューティング |
-| `/add-classify-rule` | 自動分類のキーワードルールを追加 |
 
 ## クイックリファレンス
 
