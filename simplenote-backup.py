@@ -4,9 +4,9 @@ from simperium.core import Api as SimperiumApi
 appname = 'chalk-bump-f49' # Simplenote
 token = os.environ['TOKEN']
 backup_dir = sys.argv[1] if len(sys.argv) > 1 else (os.path.join(os.environ['HOME'], "Dropbox/SimplenoteBackups"))
-print "Starting backup your simplenote to: %s" % backup_dir
+print("Starting backup your simplenote to: %s" % backup_dir)
 if not os.path.exists(backup_dir):
-    print "Creating directory: %s" % backup_dir
+    print("Creating directory: %s" % backup_dir)
     os.makedirs(backup_dir)
 
 api = SimperiumApi(appname, token)
@@ -40,15 +40,15 @@ for note in index:
 
     path = os.path.join(dir_path, note['id'] + '.txt')
     #print path
-    with open(path, "w") as f:
+    with open(path, "w", encoding='utf-8') as f:
         # print json.dumps(note, indent=2)
         #f.write("id: %s\n" % note['id'])
-        f.write(note['d']['content'].encode('utf8'))
+        f.write(note['d']['content'])
         f.write("\n")
-        f.write("Tags: %s\n" % ", ".join(note['d']['tags']).encode('utf8'))
+        f.write("Tags: %s\n" % ", ".join(note['d']['tags']))
         # record pinned notes and whatever else
         if len(note['d']['systemTags'])>0:
-            f.write("System tags: %s\n" % ", ".join(note['d']['systemTags']).encode('utf8'))
+            f.write("System tags: %s\n" % ", ".join(note['d']['systemTags']))
     os.utime(path,(note['d']['modificationDate'],note['d']['modificationDate']))
 
-print "Done: %d files (%d in TRASH)." % (len(index), trashed)
+print("Done: %d files (%d in TRASH)." % (len(index), trashed))
