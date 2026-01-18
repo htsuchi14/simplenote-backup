@@ -88,6 +88,14 @@ If you wish to execute a backup job once an hour, add the following line to your
     # Launch a one-off container which will dump files in your specified path, mounted at container's /data/ directory.
     docker run --rm -it --user $(id -u):$(id -g) -e BACKUP_DIR=/data/ -e TOKEN=your_token -v /path/to/backups/:/data/ simplenote-backup
 
+## Sync with upstream
+
+This repository is a fork. To pull the latest changes from the original repository:
+
+```bash
+./sync-upstream.sh
+```
+
 ## TODO
 - Provide an archive file packed with simperium sdk.
 - Run the script as a service somewhere so that you don't need to keep open a desktop machine for backing up notes entered eg. on your mobile device.
