@@ -27,7 +27,7 @@ rm -rf /path/to/backup-data/*
 ./venv/bin/python3 simplenote-backup.py /path/to/backup-data
 ```
 
-### 2. 大量のファイルがTRASHに移動
+### 2. 大量のファイルが_trashに移動
 
 **原因**: `trash_orphans=True` で孤立ファイル検出が過剰に動作
 

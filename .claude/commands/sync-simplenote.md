@@ -62,5 +62,5 @@ Done: 130 created, 5 updated, 45 tags updated, 1800 unchanged.
 ## 注意
 
 - `sync` 実行には `.env` ファイルの `TOKEN` が必要
-- TRASHディレクトリ内のファイルは同期されない
+- _trashディレクトリ内のファイルは同期されない
 - 同期は片方向（ローカル → Simplenote）

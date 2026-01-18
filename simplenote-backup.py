@@ -74,9 +74,9 @@ while 'mark' in dump:
 trashed = 0
 for note in index:
     dir_path = backup_dir
-    #if the note was trashed, put it into a 'TRASH' subdirectory
+    #if the note was trashed, put it into a '_trash' subdirectory
     if note['d']['deleted']== True:
-        dir_path = os.path.join(dir_path, 'TRASH')
+        dir_path = os.path.join(dir_path, '_trash')
         trashed = trashed + 1
 
     #if the note has a single tag, put it into a subdirectory named as the tag
@@ -104,4 +104,4 @@ for note in index:
             f.write("System tags: %s\n" % ", ".join(note['d']['systemTags']))
     os.utime(path,(note['d']['modificationDate'],note['d']['modificationDate']))
 
-print("Done: %d files (%d in TRASH)." % (len(index), trashed))
+print("Done: %d files (%d in _trash)." % (len(index), trashed))

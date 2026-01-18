@@ -143,7 +143,7 @@ def get_tag_from_path(filepath, import_dir):
     """ファイルパスからタグを取得（ディレクトリ名）"""
     parent_dir = os.path.basename(os.path.dirname(filepath))
     base_import_dir = os.path.basename(import_dir.rstrip('/'))
-    if parent_dir and parent_dir not in [base_import_dir, 'TRASH']:
+    if parent_dir and parent_dir not in [base_import_dir, '_trash']:
         return parent_dir
     return None
 
@@ -159,9 +159,9 @@ def analyze_sync_status(import_dir):
     print("Fetching existing notes from Simplenote...", file=sys.stderr)
     existing_notes = fetch_existing_notes(api)
 
-    # .mdファイルを検索（TRASHディレクトリを除外）、ソートして処理順序を安定化
+    # .mdファイルを検索（_trashディレクトリを除外）、ソートして処理順序を安定化
     md_files = sorted([f for f in glob.glob(os.path.join(import_dir, '**/*.md'), recursive=True)
-                if '/TRASH/' not in f])
+                if '/_trash/' not in f])
 
     results = {
         'to_create': [],

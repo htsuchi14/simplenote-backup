@@ -54,7 +54,7 @@ TOKEN=your_simplenote_token_here
 
 # 出力例:
 # Starting backup your simplenote to: /Users/xxx/Dropbox/SimplenoteBackups
-# Done: 1981 files (0 in TRASH).
+# Done: 1981 files (0 in _trash).
 ```
 
 ---
@@ -77,7 +77,7 @@ TOKEN=your_simplenote_token_here
 - 各ノートを `.md` ファイルとして保存
 - ファイル名は先頭行（タイトル）から生成
 - 単一タグのノートはタグ名のディレクトリに配置
-- 削除済みノートは `TRASH/` ディレクトリに保存
+- 削除済みノートは `_trash/` ディレクトリに保存
 - ファイル末尾に `Tags:` と `System tags:` を付与
 
 **出力例:**
@@ -89,7 +89,7 @@ TOKEN=your_simplenote_token_here
 ライフ/
 ├── 買い物リスト.md
 └── 旅行計画.md
-TRASH/
+_trash/
 └── 削除したノート.md
 ```
 
@@ -197,7 +197,7 @@ Pull（Remote→Local）と Push（Local→Remote）を順番に実行し、ロ�
 - **タグ変更**: リモートでタグを変更 → ローカルのディレクトリを移動
 - **コンテンツ変更**: リモートで編集 → ローカルファイルを更新
 - **新規ノート**: リモートで作成 → ローカルにダウンロード
-- **削除（Trash）**: リモートで削除 → ローカルを`TRASH/`へ移動
+- **削除（Trash）**: リモートで削除 → ローカルを`_trash/`へ移動
 - **孤立ファイル**: ローカルのみに存在するファイルを検出（警告表示）
 
 **使用例（タグ名変更の反映）:**
@@ -215,7 +215,7 @@ Pull（Remote→Local）と Push（Local→Remote）を順番に実行し、ロ�
 **使用例（リモートで削除したノート）:**
 ```bash
 ./venv/bin/python3 simplenote-pull.py pull
-# [2026-01-18 12:00:00] INFO: Moved to TRASH: 削除したノート.md
+# [2026-01-18 12:00:00] INFO: Moved to _trash: 削除したノート.md
 ```
 
 ---
@@ -476,7 +476,7 @@ cat /tmp/simplenote-sync-error.log
 │   └── タスク.md
 ├── ライフ/            # タグ: ライフ
 │   └── 買い物.md
-├── TRASH/             # 削除済み（同期対象外）
+├── _trash/             # 削除済み（同期対象外）
 │   └── 古いノート.md
 └── 未分類ノート.md    # タグなし（ルート）
 ```

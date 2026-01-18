@@ -15,7 +15,7 @@ simplenote-backup-data/
 │   └── meeting.md
 ├── プログラミング/  # tags: ['プログラミング']
 │   └── react.md
-├── TRASH/          # 削除されたノート
+├── _trash/          # 削除されたノート
 └── memo.md         # tags: [] (ルート = タグなし)
 ```
 
@@ -54,7 +54,7 @@ IDコメントは自動付与され、タイトル変更時も正確に同期さ
 
 ### trash_orphans はデフォルトFalse
 
-`simplenote-pull.py` の孤立ファイル検出は、誤って大量のファイルをTRASHに移動するリスクがある。
+`simplenote-pull.py` の孤立ファイル検出は、誤って大量のファイルを_trashに移動するリスクがある。
 デフォルトでは `trash_orphans=False` とし、明示的に指定した場合のみ有効にする。
 
 ```python

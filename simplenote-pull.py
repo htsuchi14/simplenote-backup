@@ -125,7 +125,7 @@ def get_local_files(backup_dir):
         # ディレクトリからタグを取得
         rel_path = os.path.relpath(filepath, backup_dir)
         parts = rel_path.split(os.sep)
-        dir_tag = parts[0] if len(parts) > 1 and parts[0] != 'TRASH' else None
+        dir_tag = parts[0] if len(parts) > 1 and parts[0] != '_trash' else None
 
         files[filepath] = {
             'content': content,
@@ -133,7 +133,7 @@ def get_local_files(backup_dir):
             'system_tags': system_tags,
             'dir_tag': dir_tag,
             'title': title,
-            'is_trash': 'TRASH' in filepath,
+            'is_trash': '_trash' in filepath,
             'note_id': note_id
         }
 
@@ -204,7 +204,7 @@ def analyze_differences(backup_dir):
         'tag_changes': [],      # タグ（ディレクトリ）変更
         'content_changes': [],  # コンテンツ変更
         'new_notes': [],        # リモートにあってローカルにない
-        'to_trash': [],         # リモートで削除 → ローカルをTRASHへ
+        'to_trash': [],         # リモートで削除 → ローカルを_trashへ
         'orphaned': [],         # ローカルにあってリモートにない（孤立）
         'identical': [],        # 同一
         'remote_count': 0,
@@ -273,7 +273,7 @@ def analyze_differences(backup_dir):
                 'note_id': note['id']
             })
 
-    # 削除済みリモートノートをチェック（ローカルにあればTRASHへ）
+    # 削除済みリモートノートをチェック（ローカルにあれば_trashへ）
     for note in trashed_remote:
         remote_content = note['d'].get('content', '')
         filepath, match_type = find_local_match(note, local_files, id_to_filepath, matched_local_files)
@@ -325,7 +325,7 @@ def show_status(backup_dir):
     print(f"  - Tag/directory changes: {len(results['tag_changes'])}")
     print(f"  - Content changes: {len(results['content_changes'])}")
     print(f"  - New notes to download: {len(results['new_notes'])}")
-    print(f"  - To move to TRASH: {len(results['to_trash'])}")
+    print(f"  - To move to _trash: {len(results['to_trash'])}")
     print(f"  - Orphaned (local only): {len(results['orphaned'])}")
     print(f"  - Identical: {len(results['identical'])}")
 
@@ -340,7 +340,7 @@ def show_status(backup_dir):
             print(f"  ... and {len(results['tag_changes']) - 10} more")
 
     if results['to_trash']:
-        print(f"\nTo move to TRASH:")
+        print(f"\nTo move to _trash:")
         for item in results['to_trash'][:10]:
             print(f"  {os.path.basename(item['filepath'])}")
 
@@ -396,12 +396,12 @@ def do_pull(backup_dir, dry_run=False, trash_orphans=False):
                 print(f"  {title}... {tag_info}")
 
         if results['to_trash']:
-            print("\nWould move to TRASH:")
+            print("\nWould move to _trash:")
             for item in results['to_trash']:
                 print(f"  {os.path.basename(item['filepath'])}")
 
         if results['orphaned'] and trash_orphans:
-            print("\nWould move orphaned to TRASH:")
+            print("\nWould move orphaned to _trash:")
             for item in results['orphaned'][:10]:
                 print(f"  {os.path.basename(item['filepath'])}")
 
@@ -414,21 +414,21 @@ def do_pull(backup_dir, dry_run=False, trash_orphans=False):
     trashed = 0
     untagged_count = 0
 
-    # TRASH ディレクトリ作成
-    trash_dir = os.path.join(backup_dir, 'TRASH')
+    # _trash ディレクトリ作成
+    trash_dir = os.path.join(backup_dir, '_trash')
     os.makedirs(trash_dir, exist_ok=True)
 
-    # リモートで削除されたノート → ローカルをTRASHへ
+    # リモートで削除されたノート → ローカルを_trashへ
     for item in results['to_trash']:
         old_path = item['filepath']
         filename = os.path.basename(old_path)
         new_path = get_unique_filepath(trash_dir, os.path.splitext(filename)[0], '.md')
 
         shutil.move(old_path, new_path)
-        log(f"Moved to TRASH: {filename}")
+        log(f"Moved to _trash: {filename}")
         trashed += 1
 
-    # 孤立ファイルをTRASHへ（オプション）
+    # 孤立ファイルを_trashへ（オプション）
     if trash_orphans:
         for item in results['orphaned']:
             old_path = item['filepath']
@@ -436,7 +436,7 @@ def do_pull(backup_dir, dry_run=False, trash_orphans=False):
             new_path = get_unique_filepath(trash_dir, os.path.splitext(filename)[0], '.md')
 
             shutil.move(old_path, new_path)
-            log(f"Moved orphaned to TRASH: {filename}")
+            log(f"Moved orphaned to _trash: {filename}")
             trashed += 1
 
     # タグ変更（ディレクトリ移動、ID確保）
@@ -529,7 +529,7 @@ def do_pull(backup_dir, dry_run=False, trash_orphans=False):
     # 空になったディレクトリを削除
     for item in os.listdir(backup_dir):
         item_path = os.path.join(backup_dir, item)
-        if os.path.isdir(item_path) and item not in ['TRASH', '.', '..']:
+        if os.path.isdir(item_path) and item not in ['_trash', '.', '..']:
             if not os.listdir(item_path):
                 os.rmdir(item_path)
                 log(f"Removed empty directory: {item}/")

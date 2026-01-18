@@ -87,7 +87,7 @@ def get_existing_tags(backup_dir):
     tags = []
     for item in os.listdir(backup_dir):
         item_path = os.path.join(backup_dir, item)
-        if os.path.isdir(item_path) and item != 'TRASH':
+        if os.path.isdir(item_path) and item != '_trash':
             tags.append(item)
     return sorted(tags)
 
