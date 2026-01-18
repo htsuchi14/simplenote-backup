@@ -11,11 +11,11 @@ Simperium APIを使用してSimplenoteと通信する。
 
 ```
 simplenote-backup-data/
-├── 仕事/           # tags: ['仕事']
-│   └── meeting.md
+├── _trash/          # 削除されたノート（同期対象外）
 ├── プログラミング/  # tags: ['プログラミング']
 │   └── react.md
-├── _trash/          # 削除されたノート
+├── 仕事/           # tags: ['仕事']
+│   └── meeting.md
 └── memo.md         # tags: [] (ルート = タグなし)
 ```
 
