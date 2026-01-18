@@ -2,15 +2,28 @@
 
 このプロジェクトで発生しやすい問題と対処法。
 
+## IDベース同期について
+
+ファイル先頭にIDコメントが埋め込まれ、これにより正確な同期が実現される。
+
+```markdown
+<!-- simplenote-id: 9f8a7c6b5e4d3c2b1a0f9e8d7c6b5a4f -->
+# タイトル
+```
+
+**マッチング優先順位**: ID一致 → コンテンツ一致 → タイトル一致
+
 ## よくある問題
 
 ### 1. 重複ファイル（_1, _2サフィックス）
 
-**原因**: タイトルマッチ失敗で新規作成された
+**原因**: IDがないファイルでタイトルマッチに失敗
 
-**対処**:
+**対処**: フルバックアップで全ファイルにIDを付与
 ```bash
 rm -rf /path/to/backup-data/*
+./simplenote-sync.sh
+# または
 ./venv/bin/python3 simplenote-backup.py /path/to/backup-data
 ```
 
@@ -37,6 +50,32 @@ rm -rf /path/to/backup-data/*
 - ディレクトリ名が正しいタグ名か確認
 - `simplenote-import.py dry-run` で確認
 
+### 5. IDがないファイル（旧形式）
+
+**原因**: IDベース同期導入前のファイル
+
+**対処**: フルバックアップで全ファイルにIDを付与
+```bash
+rm -rf ~/Dropbox/SimplenoteBackups/*
+./simplenote-sync.sh
+```
+
+**確認方法**:
+```bash
+head -1 ~/Dropbox/SimplenoteBackups/タグ名/ファイル.md
+# 期待: <!-- simplenote-id: xxx -->
+```
+
+### 6. タイトル変更後に同期がおかしい
+
+**原因**: IDがない状態でタイトルを変更した
+
+**対処**: フルバックアップでID付与後、再度同期
+```bash
+rm -rf ~/Dropbox/SimplenoteBackups/*
+./simplenote-sync.sh
+```
+
 ## 診断コマンド
 
 ```bash
@@ -48,4 +87,7 @@ python3 simplenote-classify.py status
 # launchdサービス状態
 launchctl list | grep simplenote
 tail -f /tmp/simplenote-sync.log
+
+# IDが付与されているか確認
+head -1 ~/Dropbox/SimplenoteBackups/*/任意のファイル.md
 ```

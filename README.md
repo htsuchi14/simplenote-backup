@@ -113,10 +113,11 @@ TRASH/
 ./venv/bin/python3 simplenote-import.py json
 ```
 
-**同期ロジック:**
-- **タイトル一致**: 先頭行が同じノートは更新
-- **完全一致**: コンテンツが同じならスキップ
-- **新規**: マッチしないファイルは新規作成
+**同期ロジック（マッチング優先順位）:**
+1. **ID一致（最優先）**: ファイル先頭のIDコメントでマッチング
+2. **コンテンツ完全一致**: 内容が同じならスキップ
+3. **タイトル一致（後方互換）**: 先頭行が同じノートは更新
+4. **新規**: マッチしないファイルは新規作成
 - **ディレクトリ = タグ**: `仕事/memo.md` → `tags: ['仕事']`
 
 **出力例:**
@@ -483,13 +484,20 @@ cat /tmp/simplenote-sync-error.log
 ### ファイル形式
 
 ```markdown
-ノートのタイトル（先頭行）
+<!-- simplenote-id: 9f8a7c6b5e4d3c2b1a0f9e8d7c6b5a4f -->
+# ノートのタイトル
 
 ノートの本文...
 
 Tags: 仕事, プロジェクト
 System tags: pinned
 ```
+
+**IDコメントについて:**
+- 先頭行のHTMLコメントにSimplenoteの内部IDが埋め込まれます
+- このIDにより、タイトルを変更しても正確に同期されます
+- IDはバックアップ/Pull時に自動付与されるため、手動編集は不要です
+- Simplenoteに同期されても表示には影響しません（HTMLコメントのため）
 
 ---
 
@@ -505,6 +513,31 @@ System tags: pinned
 
 ---
 
+## IDベース同期へのマイグレーション
+
+既存のバックアップにIDを付与して、より安定した同期を実現できます。
+
+```bash
+# 1. ローカルファイルを削除
+rm -rf ~/Dropbox/SimplenoteBackups/*
+
+# 2. フルバックアップ（ID付きで再エクスポート）
+./simplenote-sync.sh
+# または
+./venv/bin/python3 simplenote-backup.py ~/Dropbox/SimplenoteBackups
+
+# 3. IDが付与されているか確認
+head -1 ~/Dropbox/SimplenoteBackups/*/任意のファイル.md
+# 期待: <!-- simplenote-id: xxxxxxxx... -->
+```
+
+**マイグレーション後のメリット:**
+- タイトルを変更しても正しく同期される
+- 重複タイトルでも正確にマッチング
+- 同期の安定性が大幅に向上
+
+---
+
 ## トラブルシューティング
 
 ### トークンの有効期限切れ
@@ -517,16 +550,34 @@ System tags: pinned
 
 同じファイルが毎回「更新が必要」と判定される場合:
 
+**対処法1: IDベース同期にマイグレーション（推奨）**
 ```bash
-# 2回連続でsyncを実行して安定させる
+rm -rf ~/Dropbox/SimplenoteBackups/*
+./simplenote-sync.sh
+```
+
+**対処法2: 2回連続sync**
+```bash
 ./venv/bin/python3 simplenote-import.py sync
 ./venv/bin/python3 simplenote-import.py sync
 ```
 
 ### 重複タイトルの問題
 
-同じタイトルのノートが複数ある場合、最初のマッチ以降は新規作成されます。
-これは仕様であり、重複タイトルは別々のノートとして管理されます。
+**IDがある場合:** 問題なし（IDで正確にマッチング）
+
+**IDがない場合:** 同じタイトルのノートが複数あると、最初のマッチ以降は新規作成されます。
+→ IDベース同期へのマイグレーションを推奨
+
+### 重複ファイル（_1, _2サフィックス）が作成される
+
+**原因:** タイトルマッチに失敗して新規ファイルとして作成された
+
+**対処法:** フルバックアップで再同期（IDが付与される）
+```bash
+rm -rf ~/Dropbox/SimplenoteBackups/*
+./venv/bin/python3 simplenote-backup.py ~/Dropbox/SimplenoteBackups
+```
 
 ---
 
@@ -566,6 +617,7 @@ simplenote-backup/
 ├── simplenote-import.py    # プッシュ同期（Local → Remote）
 ├── simplenote-pull.py      # プル同期（Remote → Local, 差分）
 ├── simplenote-classify.py  # 未分類ノートの自動タグ付け
+├── simplenote_metadata.py  # ID管理ユーティリティ
 ├── install-launchd.sh      # launchd インストーラー
 ├── uninstall-launchd.sh    # launchd アンインストーラー
 ├── com.simplenote.sync.plist.template  # launchd設定テンプレート

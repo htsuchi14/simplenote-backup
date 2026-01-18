@@ -15,6 +15,11 @@ import glob
 import shutil
 from datetime import datetime
 from simperium.core import Api as SimperiumApi
+from simplenote_metadata import (
+    extract_id_from_content,
+    get_content_without_id,
+    build_content_with_id
+)
 
 
 def load_env(env_path=None):
@@ -74,9 +79,15 @@ def extract_filename(content, note_id):
 
 
 def parse_local_file(filepath):
-    """ローカルファイルを解析してコンテンツとタグを取得"""
+    """ローカルファイルを解析してコンテンツ、タグ、IDを取得"""
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
+
+    # Extract simplenote ID if present
+    note_id = extract_id_from_content(content)
+
+    # Remove ID comment from content for comparison
+    content = get_content_without_id(content)
 
     lines = content.split('\n')
     clean_lines = []
@@ -98,16 +109,17 @@ def parse_local_file(filepath):
     while clean_lines and clean_lines[-1] == '':
         clean_lines.pop()
 
-    return '\n'.join(clean_lines), local_tags, system_tags
+    return '\n'.join(clean_lines), local_tags, system_tags, note_id
 
 
 def get_local_files(backup_dir):
-    """ローカルファイルを全て取得してタイトルでインデックス化"""
+    """ローカルファイルを全て取得してタイトルとIDでインデックス化"""
     files = {}
+    id_to_filepath = {}  # ID -> filepath mapping for quick lookup
     md_files = glob.glob(os.path.join(backup_dir, '**/*.md'), recursive=True)
 
     for filepath in md_files:
-        content, tags, system_tags = parse_local_file(filepath)
+        content, tags, system_tags, note_id = parse_local_file(filepath)
         title = content.split('\n')[0] if content else ''
 
         # ディレクトリからタグを取得
@@ -121,28 +133,50 @@ def get_local_files(backup_dir):
             'system_tags': system_tags,
             'dir_tag': dir_tag,
             'title': title,
-            'is_trash': 'TRASH' in filepath
+            'is_trash': 'TRASH' in filepath,
+            'note_id': note_id
         }
 
-    return files
+        # Build ID index
+        if note_id:
+            id_to_filepath[note_id] = filepath
+
+    return files, id_to_filepath
 
 
-def find_local_match(remote_note, local_files, matched_ids=None):
-    """リモートノートに対応するローカルファイルを検索"""
+def find_local_match(remote_note, local_files, id_to_filepath, matched_ids=None):
+    """リモートノートに対応するローカルファイルを検索
+
+    マッチング優先順位:
+    1. IDマッチ（ファイルにIDがあれば最優先）
+    2. コンテンツ完全一致
+    3. タイトル一致（後方互換性）
+    """
     if matched_ids is None:
         matched_ids = set()
 
+    remote_id = remote_note['id']
     remote_content = remote_note['d'].get('content', '')
     remote_title = remote_content.split('\n')[0] if remote_content else ''
 
-    # 完全一致を優先（既にマッチ済みを除く）
+    # 1. IDマッチ（最優先）
+    if remote_id in id_to_filepath:
+        filepath = id_to_filepath[remote_id]
+        if filepath not in matched_ids:
+            local = local_files[filepath]
+            if local['content'] == remote_content:
+                return filepath, 'identical'
+            else:
+                return filepath, 'id_match'
+
+    # 2. コンテンツ完全一致（既にマッチ済みを除く）
     for filepath, local in sorted(local_files.items()):
         if filepath in matched_ids:
             continue
         if local['content'] == remote_content:
             return filepath, 'identical'
 
-    # タイトル一致（既にマッチ済みを除く）
+    # 3. タイトル一致（後方互換性、既にマッチ済みを除く）
     for filepath, local in sorted(local_files.items()):
         if filepath in matched_ids:
             continue
@@ -164,7 +198,7 @@ def analyze_differences(backup_dir):
     remote_notes = fetch_remote_notes(api)
 
     log("Scanning local files...")
-    local_files = get_local_files(backup_dir)
+    local_files, id_to_filepath = get_local_files(backup_dir)
 
     results = {
         'tag_changes': [],      # タグ（ディレクトリ）変更
@@ -175,7 +209,8 @@ def analyze_differences(backup_dir):
         'identical': [],        # 同一
         'remote_count': 0,
         'remote_trashed': 0,
-        'local_count': len([f for f in local_files if not local_files[f]['is_trash']])
+        'local_count': len([f for f in local_files if not local_files[f]['is_trash']]),
+        'id_to_filepath': id_to_filepath  # Pass through for do_pull
     }
 
     matched_local_files = set()
@@ -197,7 +232,7 @@ def analyze_differences(backup_dir):
         # 単一タグの場合のみディレクトリ化
         remote_dir_tag = remote_tags[0] if len(remote_tags) == 1 else None
 
-        filepath, match_type = find_local_match(note, local_files, matched_local_files)
+        filepath, match_type = find_local_match(note, local_files, id_to_filepath, matched_local_files)
 
         if filepath:
             matched_local_files.add(filepath)
@@ -212,19 +247,21 @@ def analyze_differences(backup_dir):
                         'new_tag': remote_dir_tag,
                         'content': remote_content,
                         'tags': remote_tags,
-                        'system_tags': remote_system_tags
+                        'system_tags': remote_system_tags,
+                        'note_id': note['id']
                     })
                 else:
                     results['identical'].append(filepath)
             else:
-                # タイトル一致だがコンテンツ異なる
+                # ID一致またはタイトル一致だがコンテンツ異なる
                 results['content_changes'].append({
                     'filepath': filepath,
                     'old_tag': local['dir_tag'],
                     'new_tag': remote_dir_tag,
                     'content': remote_content,
                     'tags': remote_tags,
-                    'system_tags': remote_system_tags
+                    'system_tags': remote_system_tags,
+                    'note_id': note['id']
                 })
         else:
             # ローカルにない新規ノート
@@ -232,13 +269,14 @@ def analyze_differences(backup_dir):
                 'content': remote_content,
                 'tags': remote_tags,
                 'system_tags': remote_system_tags,
-                'dir_tag': remote_dir_tag
+                'dir_tag': remote_dir_tag,
+                'note_id': note['id']
             })
 
     # 削除済みリモートノートをチェック（ローカルにあればTRASHへ）
     for note in trashed_remote:
         remote_content = note['d'].get('content', '')
-        filepath, match_type = find_local_match(note, local_files, matched_local_files)
+        filepath, match_type = find_local_match(note, local_files, id_to_filepath, matched_local_files)
 
         if filepath and not local_files[filepath]['is_trash']:
             matched_local_files.add(filepath)
@@ -401,7 +439,7 @@ def do_pull(backup_dir, dry_run=False, trash_orphans=False):
             log(f"Moved orphaned to TRASH: {filename}")
             trashed += 1
 
-    # タグ変更（ディレクトリ移動）
+    # タグ変更（ディレクトリ移動、ID確保）
     for item in results['tag_changes']:
         old_path = item['filepath']
         filename = os.path.basename(old_path)
@@ -414,7 +452,19 @@ def do_pull(backup_dir, dry_run=False, trash_orphans=False):
         os.makedirs(new_dir, exist_ok=True)
         new_path = get_unique_filepath(new_dir, os.path.splitext(filename)[0], '.md')
 
-        shutil.move(old_path, new_path)
+        # Write content with ID (ensures ID is present for migrated files)
+        with open(new_path, 'w', encoding='utf-8') as f:
+            content_with_id = build_content_with_id(item['note_id'], item['content'])
+            f.write(content_with_id)
+            f.write('\n')
+            if item['tags']:
+                f.write(f"Tags: {', '.join(item['tags'])}\n")
+            if item['system_tags']:
+                f.write(f"System tags: {', '.join(item['system_tags'])}\n")
+
+        # Remove old file
+        os.remove(old_path)
+
         old_tag = item['old_tag'] or 'root'
         new_tag = item['new_tag'] or 'root'
         log(f"Tag changed: {filename} ({old_tag}/ -> {new_tag}/)")
@@ -436,9 +486,10 @@ def do_pull(backup_dir, dry_run=False, trash_orphans=False):
             os.remove(filepath)
             filepath = new_path
 
-        # コンテンツを更新
+        # コンテンツを更新（ID付き）
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(item['content'])
+            content_with_id = build_content_with_id(item['note_id'], item['content'])
+            f.write(content_with_id)
             f.write('\n')
             if item['tags']:
                 f.write(f"Tags: {', '.join(item['tags'])}\n")
@@ -448,7 +499,7 @@ def do_pull(backup_dir, dry_run=False, trash_orphans=False):
         log(f"Updated: {os.path.basename(filepath)}")
         updated += 1
 
-    # 新規ノート
+    # 新規ノート（ID付き）
     for item in results['new_notes']:
         content = item['content']
         filename = extract_filename(content, 'new_note')
@@ -463,7 +514,8 @@ def do_pull(backup_dir, dry_run=False, trash_orphans=False):
         filepath = get_unique_filepath(target_dir, filename, '.md')
 
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(content)
+            content_with_id = build_content_with_id(item['note_id'], content)
+            f.write(content_with_id)
             f.write('\n')
             if item['tags']:
                 f.write(f"Tags: {', '.join(item['tags'])}\n")

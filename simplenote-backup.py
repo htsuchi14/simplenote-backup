@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os, sys, json, re
 from simperium.core import Api as SimperiumApi
+from simplenote_metadata import build_content_with_id
 
 
 def load_env(env_path=None):
@@ -93,9 +94,9 @@ for note in index:
     path = get_unique_filepath(dir_path, filename, '.md')
     #print path
     with open(path, "w", encoding='utf-8') as f:
-        # print json.dumps(note, indent=2)
-        #f.write("id: %s\n" % note['id'])
-        f.write(note['d']['content'])
+        # Prepend ID comment for reliable sync
+        content_with_id = build_content_with_id(note['id'], note['d']['content'])
+        f.write(content_with_id)
         f.write("\n")
         f.write("Tags: %s\n" % ", ".join(note['d']['tags']))
         # record pinned notes and whatever else

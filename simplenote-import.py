@@ -15,6 +15,7 @@ import glob
 import json
 import uuid
 from simperium.core import Api as SimperiumApi
+from simplenote_metadata import extract_id_from_content, get_content_without_id
 
 
 def load_env(env_path=None):
@@ -51,9 +52,15 @@ def fetch_existing_notes(api):
 
 
 def parse_local_file(filepath):
-    """ローカルファイルを解析してコンテンツとタグを取得"""
+    """ローカルファイルを解析してコンテンツ、タグ、IDを取得"""
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
+
+    # Extract simplenote ID if present
+    note_id = extract_id_from_content(content)
+
+    # Remove ID comment from content for sync
+    content = get_content_without_id(content)
 
     lines = content.split('\n')
     clean_lines = []
@@ -73,16 +80,33 @@ def parse_local_file(filepath):
     while clean_lines and clean_lines[-1] == '':
         clean_lines.pop()
 
-    return '\n'.join(clean_lines), local_tags
+    return '\n'.join(clean_lines), local_tags, note_id
 
 
-def find_existing_note(content, existing, matched_ids=None):
+def find_existing_note(content, existing, local_note_id=None, matched_ids=None):
     """既存ノートと比較して、同一または類似を判定
 
+    マッチング優先順位:
+    1. IDマッチ（ファイルにIDがあれば最優先）
+    2. コンテンツ完全一致
+    3. タイトル一致（後方互換性）
+
+    local_note_id: ローカルファイルから抽出したID
     matched_ids: 既にマッチ済みのノートIDのセット（重複タイトル対策）
     """
     if matched_ids is None:
         matched_ids = set()
+
+    # 1. IDマッチ（最優先）
+    if local_note_id and local_note_id not in matched_ids:
+        for note in existing:
+            if note['id'] == local_note_id and not note['d'].get('deleted'):
+                existing_content = note['d'].get('content', '')
+                existing_tags = note['d'].get('tags', [])
+                if existing_content == content:
+                    return ('identical', note['id'], existing_tags)
+                else:
+                    return ('update', note['id'], existing_tags)
 
     # IDでソートして処理順序を安定化
     for note in sorted(existing, key=lambda n: n['id']):
@@ -95,11 +119,23 @@ def find_existing_note(content, existing, matched_ids=None):
         existing_content = note['d'].get('content', '')
         existing_tags = note['d'].get('tags', [])
 
+        # 2. コンテンツ完全一致
         if existing_content == content:
             return ('identical', note['id'], existing_tags)
-        # 先頭行（タイトル）が同じなら更新候補
+
+    # 3. タイトル一致（後方互換性）
+    for note in sorted(existing, key=lambda n: n['id']):
+        if note['d'].get('deleted'):
+            continue
+        if note['id'] in matched_ids:
+            continue
+
+        existing_content = note['d'].get('content', '')
+        existing_tags = note['d'].get('tags', [])
+
         if existing_content.split('\n')[0] == content.split('\n')[0]:
             return ('update', note['id'], existing_tags)
+
     return ('create', None, [])
 
 
@@ -140,13 +176,13 @@ def analyze_sync_status(import_dir):
     matched_ids = set()
 
     for filepath in md_files:
-        content, local_tags = parse_local_file(filepath)
+        content, local_tags, local_note_id = parse_local_file(filepath)
         dir_tag = get_tag_from_path(filepath, import_dir)
 
         # ディレクトリからのタグを優先
         effective_tags = [dir_tag] if dir_tag else local_tags
 
-        action, note_id, remote_tags = find_existing_note(content, existing_notes, matched_ids)
+        action, note_id, remote_tags = find_existing_note(content, existing_notes, local_note_id, matched_ids)
 
         if action == 'create':
             results['to_create'].append({
@@ -247,7 +283,7 @@ def do_sync(import_dir, dry_run=False, batch_size=50):
         print(f"\nCreating {len(results['to_create'])} notes...")
         batch = {}
         for i, item in enumerate(results['to_create']):
-            content, _ = parse_local_file(item['filepath'])
+            content, _, _ = parse_local_file(item['filepath'])
             current_time = time.time()
             new_id = str(uuid.uuid4()).replace('-', '')
             batch[new_id] = {
@@ -278,7 +314,7 @@ def do_sync(import_dir, dry_run=False, batch_size=50):
         print(f"\nUpdating {len(results['to_update'])} notes (content)...")
         batch = {}
         for i, item in enumerate(results['to_update']):
-            content, _ = parse_local_file(item['filepath'])
+            content, _, _ = parse_local_file(item['filepath'])
             current_time = time.time()
             batch[item['note_id']] = {
                 'content': content,
@@ -303,7 +339,7 @@ def do_sync(import_dir, dry_run=False, batch_size=50):
         print(f"\nUpdating {len(results['tag_changes'])} notes (tags only)...")
         batch = {}
         for i, item in enumerate(results['tag_changes']):
-            content, _ = parse_local_file(item['filepath'])
+            content, _, _ = parse_local_file(item['filepath'])
             current_time = time.time()
             batch[item['note_id']] = {
                 'content': content,

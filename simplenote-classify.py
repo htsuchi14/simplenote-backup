@@ -8,6 +8,11 @@ import sys
 import re
 import json
 import shutil
+from simplenote_metadata import (
+    extract_id_from_content,
+    get_content_without_id,
+    build_content_with_id
+)
 
 
 def get_default_backup_dir():
@@ -37,9 +42,15 @@ def extract_title_from_content(content):
 
 
 def parse_note_file(filepath):
-    """Parse a note file and extract content and tags"""
+    """Parse a note file and extract content, tags, and ID"""
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
+
+    # Extract simplenote ID if present
+    note_id = extract_id_from_content(content)
+
+    # Remove ID comment from content for processing
+    content = get_content_without_id(content)
 
     lines = content.split('\n')
     tags = []
@@ -66,7 +77,8 @@ def parse_note_file(filepath):
         'content': '\n'.join(content_lines),
         'tags': tags,
         'system_tags': system_tags,
-        'filepath': filepath
+        'filepath': filepath,
+        'note_id': note_id
     }
 
 
@@ -309,14 +321,20 @@ def apply_tag(backup_dir, filename, new_tag):
         if title:
             new_filename = title + '.md'
 
-    # Build new content
-    new_content = note['content']
-    if not new_content.endswith('\n'):
-        new_content += '\n'
-    new_content += '\n'
-    new_content += f"Tags: {', '.join(note['tags'])}\n"
+    # Build new content (preserve ID if present)
+    base_content = note['content']
+    if not base_content.endswith('\n'):
+        base_content += '\n'
+    base_content += '\n'
+    base_content += f"Tags: {', '.join(note['tags'])}\n"
     if note['system_tags']:
-        new_content += f"System tags: {', '.join(note['system_tags'])}\n"
+        base_content += f"System tags: {', '.join(note['system_tags'])}\n"
+
+    # Prepend ID comment if present
+    if note['note_id']:
+        new_content = build_content_with_id(note['note_id'], base_content)
+    else:
+        new_content = base_content
 
     # Get unique filepath in destination
     dst_path = os.path.join(tag_dir, new_filename)
