@@ -1,6 +1,9 @@
 # Environment variables
 .env
 
+# Generated launchd plist (contains user-specific paths)
+com.simplenote.backup.plist
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -6,11 +6,11 @@
     <string>com.simplenote.backup</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/hiromutsuchiya/simplenote-backup/venv/bin/python3</string>
-        <string>/Users/hiromutsuchiya/simplenote-backup/simplenote-backup.py</string>
+        <string>{{INSTALL_DIR}}/venv/bin/python3</string>
+        <string>{{INSTALL_DIR}}/simplenote-backup.py</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/hiromutsuchiya/simplenote-backup</string>
+    <string>{{INSTALL_DIR}}</string>
     <key>StartInterval</key>
     <integer>3600</integer>
     <key>StandardOutPath</key>

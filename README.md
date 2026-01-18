@@ -300,7 +300,17 @@ crontab -e
 #### 初回セットアップ
 
 ```bash
-# plistをLaunchAgentsにコピー
+# インストールスクリプトを実行（plistを自動生成＆登録）
+./install-launchd.sh
+```
+
+または手動で：
+
+```bash
+# テンプレートからplistを生成
+sed "s|{{INSTALL_DIR}}|$(pwd)|g" com.simplenote.backup.plist.template > com.simplenote.backup.plist
+
+# LaunchAgentsにコピー
 cp com.simplenote.backup.plist ~/Library/LaunchAgents/
 
 # サービスを有効化
@@ -335,9 +345,10 @@ launchctl unload ~/Library/LaunchAgents/com.simplenote.backup.plist
 launchctl load ~/Library/LaunchAgents/com.simplenote.backup.plist
 
 # plist更新後の再読み込み
-launchctl unload ~/Library/LaunchAgents/com.simplenote.backup.plist
-cp com.simplenote.backup.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.simplenote.backup.plist
+./install-launchd.sh
+
+# 完全にアンインストール
+./uninstall-launchd.sh
 ```
 
 #### ログ確認
