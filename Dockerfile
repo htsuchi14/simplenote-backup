@@ -1,17 +1,18 @@
-FROM python:2
+FROM python:3.13-slim
 
-ARG DEBIAN_FRONTEND=noninteractive
-RUN \
-  apt-get update && \
-  apt-get install -y make \
-  && \
-  apt-get clean && \
-  rm -rf /var/lib/apt/lists/
+WORKDIR /app
 
-RUN pip install --no-cache \
-    git+https://github.com/Simperium/simperium-python.git
+# Install simperium
+RUN pip install --no-cache-dir simperium
 
-COPY . /usr/src/simplenote-backup/
-WORKDIR /usr/src/simplenote-backup/
+# Copy scripts
+COPY simplenote-backup.py .
+COPY simplenote-import.py .
+COPY simplenote-pull.py .
+COPY simplenote-classify.py .
 
-CMD [ "make" ]
+# Default backup directory
+ENV BACKUP_DIR=/data
+
+# Default command: backup
+CMD ["python3", "simplenote-backup.py"]

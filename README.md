@@ -1,102 +1,550 @@
-simplenote-backup
-=================
+# Simplenote Backup & Sync Tools
 
-- It backups your notes as separate files named by note ids (like 68b329da9893e34099c7d8ad5cb9c940.txt)
-- Backup files contain tags.
-- It stores files in `~/Dropbox/SimplenoteBackups` by default.
-  - If a note has only one tag, put it into a directory named by the tag. This lets you keep the structure when you import notes into the Notes.app.
+Simplenoteのノートをローカルにバックアップし、双方向同期を行うツール群です。
 
+## 機能概要
 
-## Sample of the content of a backup file of a note.
+| スクリプト | 機能 | 方向 |
+|-----------|------|------|
+| `simplenote-backup.py` | リモートからローカルへ全ノートをダウンロード | Remote → Local |
+| `simplenote-import.py` | ローカルの変更をリモートにプッシュ | Local → Remote |
+| `simplenote-pull.py` | リモートの変更をローカルに反映（差分同期） | Remote → Local |
+| `simplenote-classify.py` | 未分類ノートの自動タグ付け | Local |
 
-    Content of the note.
-    After the content and a blank line, tags follow.
-    
-    tags: foo, bar
+## クイックスタート
 
-
-## Why
-
-I know https://app.simplenote.com has a "Download .zip" feature, but it doesn't include tags.
-I know https://app.simplenote.com has an "Export notes" feature, but it seems to exclude notes in trash.
-Neither of these lets us automate backing up (for instance periodically using cron).
-I am tired of searching around for other options...
-
-## Technical notes
-
-- It uses the simperium-python sdk.
-- I don't trust 3rd party tools that handle my password, so I don't require you to trust me either. The simperium API didn't provide us with a way like OAuth. So you need to retrieve a token from http://app.simplenote.com/ by yourself.
-
-
-## Installation (OS X)
-
-Sorry if your desktop OS is not an OS X.
-Sorry if you are not familiar with the command line.
-I hope you can figure out how to deal with this nontheless.
-
-### 1. Create a working directory
-
-If you don't have any idea where to place the directory, your home directory is an option. I.e.
-
-    mkdir ~/SimplenoteBackup
-    cd ~/SimplenoteBackup
-
-### 2. Get what's needed
-
-    git clone https://github.com/Simperium/simperium-python.git
-    git clone https://github.com/hiroshi/simplenote-backup.git
-
-### 3. Get your token
-
-  1. Open https://app.simplenote.com and log in.
-  2. Open the inspector in your browser (A shortcut may be Command + Alt + i).
-  3. Move to Application tab, disclose Storage/Cookie, select `https://app.simplenote.com` then double click the value of `token` to copy.
-  4. You may get your token; it looks like "a543b9622f7bf1a340a8a6682d09ad17".
-
-### 4. Run my script
-
-    cd ~/SimplenoteBackup/simplenote-backup
-    make TOKEN=<YOUR_TOKEN_HERE>
-
-If it succeeds you will see something like this:
-
-    Starting backup your simplenote to: /Users/hiroshi/Dropbox/SimplenoteBackups
-    Done: 3156 files (1605 in TRASH).
-
-
-If you'd like to choose another destination directory, add BACKUP_DIR option to the `make` command.
-
-    make TOKEN=YOUR_TOKEN_HERE BACKUP_DIR=~/my-simplenote-backup
-
-
-### 5. Add a cron task if you wish
-
-    crontab -e
-
-If you wish to execute a backup job once an hour, add the following line to your crontab:
-
-    0 * * * * cd $HOME/SimplenoteBackup/simplenote-backup && make TOKEN=YOU_TOKEN_HERE > cron.log 2>&1
-
-## Build and run without Python using Docker
-
-    # Build a local Docker image straight from sources on Github.
-    docker build --pull -t simplenote-backup github.com/hiroshi/simplenote-backup
-    
-    # Create host's backup dir. Otherwise, Docker will create it, but with wrong ownership (root:root).
-    mkdir -vp /path/to/backups/
-    
-    # Launch a one-off container which will dump files in your specified path, mounted at container's /data/ directory.
-    docker run --rm -it --user $(id -u):$(id -g) -e BACKUP_DIR=/data/ -e TOKEN=your_token -v /path/to/backups/:/data/ simplenote-backup
-
-## Sync with upstream
-
-This repository is a fork. To pull the latest changes from the original repository:
+### 1. セットアップ
 
 ```bash
-./sync-upstream.sh
+# リポジトリをクローン
+git clone https://github.com/hiroshi/simplenote-backup.git
+cd simplenote-backup
+
+# Python仮想環境を作成
+python3 -m venv venv
+source venv/bin/activate
+
+# 依存関係をインストール
+pip install simperium
 ```
 
-## TODO
-- Provide an archive file packed with simperium sdk.
-- Run the script as a service somewhere so that you don't need to keep open a desktop machine for backing up notes entered eg. on your mobile device.
-- Provide a bookmarklet to the grab token from https://app.simplenote.com, to ease setup.
+### 2. トークンの取得
+
+1. https://app.simplenote.com にログイン
+2. DevToolsを開く (`Cmd + Option + I`)
+3. **Application** タブ → **Cookies** → `app.simplenote.com` → `token` の値をコピー
+
+### 3. 環境変数の設定
+
+```bash
+cp .env.example .env
+```
+
+`.env` ファイルを編集:
+```
+TOKEN=your_simplenote_token_here
+```
+
+### 4. 動作確認
+
+```bash
+# バックアップを実行
+./venv/bin/python3 simplenote-backup.py
+
+# 出力例:
+# Starting backup your simplenote to: /Users/xxx/Dropbox/SimplenoteBackups
+# Done: 1981 files (0 in TRASH).
+```
+
+---
+
+## スクリプト詳細
+
+### simplenote-backup.py（フルバックアップ）
+
+リモートのSimplenoteから全ノートをダウンロードします。
+
+```bash
+# デフォルトディレクトリ（~/Dropbox/SimplenoteBackups）にバックアップ
+./venv/bin/python3 simplenote-backup.py
+
+# 指定ディレクトリにバックアップ
+./venv/bin/python3 simplenote-backup.py /path/to/backup
+```
+
+**特徴:**
+- 各ノートを `.md` ファイルとして保存
+- ファイル名は先頭行（タイトル）から生成
+- 単一タグのノートはタグ名のディレクトリに配置
+- 削除済みノートは `TRASH/` ディレクトリに保存
+- ファイル末尾に `Tags:` と `System tags:` を付与
+
+**出力例:**
+```
+仕事/
+├── 会議メモ.md
+├── プロジェクトA.md
+└── タスク一覧.md
+ライフ/
+├── 買い物リスト.md
+└── 旅行計画.md
+TRASH/
+└── 削除したノート.md
+```
+
+---
+
+### simplenote-import.py（ローカル→リモート同期）
+
+ローカルの変更をSimplenoteにプッシュします。
+
+```bash
+# 状態確認
+./venv/bin/python3 simplenote-import.py status
+
+# プレビュー（実行せず確認）
+./venv/bin/python3 simplenote-import.py dry-run
+
+# 同期実行
+./venv/bin/python3 simplenote-import.py sync
+
+# JSON出力（自動処理用）
+./venv/bin/python3 simplenote-import.py json
+```
+
+**同期ロジック:**
+- **タイトル一致**: 先頭行が同じノートは更新
+- **完全一致**: コンテンツが同じならスキップ
+- **新規**: マッチしないファイルは新規作成
+- **ディレクトリ = タグ**: `仕事/memo.md` → `tags: ['仕事']`
+
+**出力例:**
+```
+=== Sync Summary ===
+Local files: 1980
+Remote notes: 1981
+To create: 5
+To update (content): 10
+To update (tags only): 3
+Identical: 1962
+
+Creating 5 notes...
+  Progress: 5/5 created
+Done: 5 created, 10 updated, 3 tags updated, 1962 unchanged.
+```
+
+---
+
+### simplenote-pull.py（リモート→ローカル差分同期）
+
+リモートの変更をローカルに反映します。タグ変更やコンテンツ変更を検出して適用します。
+
+```bash
+# 状態確認
+./venv/bin/python3 simplenote-pull.py status
+
+# プレビュー
+./venv/bin/python3 simplenote-pull.py dry-run
+
+# 実行
+./venv/bin/python3 simplenote-pull.py pull
+```
+
+**検出する変更:**
+- **タグ変更**: リモートでタグを変更 → ローカルのディレクトリを移動
+- **コンテンツ変更**: リモートで編集 → ローカルファイルを更新
+- **新規ノート**: リモートで作成 → ローカルにダウンロード
+
+**使用例（タグ名変更の反映）:**
+```bash
+# リモートで「Health」タグを「ヘルス」に変更した場合
+./venv/bin/python3 simplenote-pull.py status
+# Tag changes: Health/ -> ヘルス/
+
+./venv/bin/python3 simplenote-pull.py pull
+# Moved: ファイル1.md -> ヘルス/
+# Moved: ファイル2.md -> ヘルス/
+# Removed empty directory: Health/
+```
+
+---
+
+### simplenote-classify.py（未分類ノートの自動分類）
+
+ルートディレクトリにある未分類ノートにタグを付けてディレクトリに移動します。
+
+```bash
+# 状態確認
+./venv/bin/python3 simplenote-classify.py status
+
+# 未分類ファイル一覧
+./venv/bin/python3 simplenote-classify.py list
+
+# 既存タグ一覧
+./venv/bin/python3 simplenote-classify.py tags
+
+# JSON出力
+./venv/bin/python3 simplenote-classify.py json
+
+# タグを適用（ファイルをディレクトリに移動）
+./venv/bin/python3 simplenote-classify.py apply <filename> <tag>
+
+# ファイル名を変更
+./venv/bin/python3 simplenote-classify.py rename <filename> "<new_title>"
+
+# タグ付きだが未移動のファイルを整理
+./venv/bin/python3 simplenote-classify.py organize
+```
+
+**既存タグ例:**
+- 思考, ネタ, 仕事, プログラミング, 読書, ライフ
+- ヘルス, ゴルフ, エッセイ, コラム, ストーリー
+- 大喜利, スケジュール
+
+---
+
+## Claude Code 連携
+
+Claude Codeのカスタムコマンド（スラッシュコマンド）で簡単に操作できます。
+
+### コマンド一覧
+
+| コマンド | 方向 | 説明 |
+|---------|------|------|
+| `/simplenote-status` | - | 全体の同期状態を一括確認 |
+| `/sync-simplenote` | Local → Remote | ローカル変更をSimplenoteにプッシュ |
+| `/pull-simplenote` | Remote → Local | リモート変更をローカルに反映 |
+| `/backup-simplenote` | Remote → Local | 全ノートをフルバックアップ |
+| `/classify` | Local | 未分類ノートの自動タグ付け |
+
+### ケース別実行手順
+
+#### 🔄 日常的な同期（推奨フロー）
+
+```
+/simplenote-status     # まず状態確認
+/pull-simplenote       # リモートの変更を取得
+/sync-simplenote       # ローカルの変更をプッシュ
+```
+
+#### 📱 スマホで編集した内容をローカルに反映したい
+
+```
+/pull-simplenote
+```
+
+#### 💻 ローカルで編集した内容をSimplenoteに反映したい
+
+```
+/sync-simplenote
+```
+
+#### 🏷️ Simplenoteでタグ名を変更した（例: Health → ヘルス）
+
+```
+/pull-simplenote
+```
+→ ローカルのディレクトリが自動で `Health/` → `ヘルス/` に移動
+
+#### 📂 ローカルでファイルを別ディレクトリに移動した（タグ変更）
+
+```
+/sync-simplenote
+```
+→ Simplenote上のタグが自動で更新
+
+#### 🆕 初回セットアップ
+
+```
+/backup-simplenote     # 全ノートをダウンロード
+/classify              # 未分類ノートにタグ付け
+/sync-simplenote       # タグ変更をリモートに反映
+```
+
+#### 🗂️ 未分類ノートを整理したい
+
+```
+/classify
+```
+→ AIが内容を分析して適切なタグを自動付与
+
+#### ❓ 今どうなってるか確認したい
+
+```
+/simplenote-status
+```
+→ Push/Pull両方の状態、未分類ノート数を一括表示
+
+---
+
+## 定期バックアップの設定
+
+### 方法1: crontab
+
+```bash
+crontab -e
+```
+
+毎時バックアップ:
+```cron
+0 * * * * cd ~/simplenote-backup && ./venv/bin/python3 simplenote-backup.py > /tmp/simplenote-backup.log 2>&1
+```
+
+毎日6時にバックアップ:
+```cron
+0 6 * * * cd ~/simplenote-backup && ./venv/bin/python3 simplenote-backup.py > /tmp/simplenote-backup.log 2>&1
+```
+
+### 方法2: launchd（macOS推奨）
+
+#### 初回セットアップ
+
+```bash
+# plistをLaunchAgentsにコピー
+cp com.simplenote.backup.plist ~/Library/LaunchAgents/
+
+# サービスを有効化
+launchctl load ~/Library/LaunchAgents/com.simplenote.backup.plist
+```
+
+#### 設定内容
+
+| 項目 | 値 |
+|------|-----|
+| サービス名 | `com.simplenote.backup` |
+| 実行間隔 | 1時間ごと（3600秒） |
+| 起動時実行 | あり（RunAtLoad） |
+| ログ出力 | `/tmp/simplenote-backup.log` |
+| エラー出力 | `/tmp/simplenote-backup-error.log` |
+
+#### 管理コマンド
+
+```bash
+# 状態確認
+launchctl list | grep simplenote
+# 出力例: 12345  0  com.simplenote.backup
+# (PID, 終了コード, サービス名)
+
+# 手動実行（テスト用）
+launchctl start com.simplenote.backup
+
+# 無効化（一時停止）
+launchctl unload ~/Library/LaunchAgents/com.simplenote.backup.plist
+
+# 再有効化
+launchctl load ~/Library/LaunchAgents/com.simplenote.backup.plist
+
+# plist更新後の再読み込み
+launchctl unload ~/Library/LaunchAgents/com.simplenote.backup.plist
+cp com.simplenote.backup.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.simplenote.backup.plist
+```
+
+#### ログ確認
+
+```bash
+# 最新のログを確認
+cat /tmp/simplenote-backup.log
+
+# リアルタイムでログを監視
+tail -f /tmp/simplenote-backup.log
+
+# エラーログを確認
+cat /tmp/simplenote-backup-error.log
+```
+
+#### 動作確認
+
+```bash
+# 1. サービスが登録されているか確認
+launchctl list | grep simplenote
+
+# 2. 手動実行してテスト
+launchctl start com.simplenote.backup
+
+# 3. ログで成功を確認
+cat /tmp/simplenote-backup.log
+# 期待される出力:
+# Starting backup your simplenote to: /Users/xxx/Dropbox/SimplenoteBackups
+# Done: 1981 files (0 in TRASH).
+```
+
+#### トラブルシューティング
+
+**サービスが動かない場合:**
+```bash
+# エラーログを確認
+cat /tmp/simplenote-backup-error.log
+
+# サービスを再登録
+launchctl unload ~/Library/LaunchAgents/com.simplenote.backup.plist
+launchctl load ~/Library/LaunchAgents/com.simplenote.backup.plist
+```
+
+**トークン期限切れの場合:**
+1. 新しいトークンを取得（Simplenote Web → DevTools → Cookies）
+2. `.env` ファイルを更新
+3. `launchctl start com.simplenote.backup` で動作確認
+
+---
+
+## データ構造
+
+### ディレクトリとタグの関係
+
+```
+~/Dropbox/SimplenoteBackups/
+├── 仕事/              # タグ: 仕事
+│   ├── 会議メモ.md
+│   └── タスク.md
+├── ライフ/            # タグ: ライフ
+│   └── 買い物.md
+├── TRASH/             # 削除済み（同期対象外）
+│   └── 古いノート.md
+└── 未分類ノート.md    # タグなし（ルート）
+```
+
+### ファイル形式
+
+```markdown
+ノートのタイトル（先頭行）
+
+ノートの本文...
+
+Tags: 仕事, プロジェクト
+System tags: pinned
+```
+
+---
+
+## 運用フロー
+
+### ケース別クイックリファレンス
+
+| やりたいこと | Claude Code | コマンドライン |
+|-------------|-------------|---------------|
+| 状態確認 | `/simplenote-status` | `simplenote-import.py status` + `simplenote-pull.py status` |
+| スマホの編集を取得 | `/pull-simplenote` | `simplenote-pull.py pull` |
+| ローカル編集を反映 | `/sync-simplenote` | `simplenote-import.py sync` |
+| タグ名変更を反映 | `/pull-simplenote` | `simplenote-pull.py pull` |
+| フルバックアップ | `/backup-simplenote` | `simplenote-backup.py` |
+| 未分類ノート整理 | `/classify` | `simplenote-classify.py` |
+
+### 日常的な同期（コマンドライン）
+
+```bash
+cd ~/simplenote-backup
+
+# 1. リモートの変更をローカルに反映
+./venv/bin/python3 simplenote-pull.py pull
+
+# 2. ローカルの変更をリモートに反映
+./venv/bin/python3 simplenote-import.py sync
+```
+
+### 初回セットアップ
+
+```bash
+# 1. リモートから全ノートをバックアップ
+./venv/bin/python3 simplenote-backup.py
+
+# 2. 未分類ノートを整理（Claude Codeで /classify）
+
+# 3. ローカルの変更をリモートに反映
+./venv/bin/python3 simplenote-import.py sync
+```
+
+### タグ名変更時
+
+1. Simplenote（Web/アプリ）でタグ名を変更
+2. `/pull-simplenote` または `simplenote-pull.py pull` でローカルに反映
+3. 空になった旧ディレクトリは自動削除
+
+---
+
+## トラブルシューティング
+
+### トークンの有効期限切れ
+
+エラー例: `HTTPError: 401 Unauthorized`
+
+**対処法:** 新しいトークンを取得して `.env` を更新
+
+### 同期が安定しない
+
+同じファイルが毎回「更新が必要」と判定される場合:
+
+```bash
+# 2回連続でsyncを実行して安定させる
+./venv/bin/python3 simplenote-import.py sync
+./venv/bin/python3 simplenote-import.py sync
+```
+
+### 重複タイトルの問題
+
+同じタイトルのノートが複数ある場合、最初のマッチ以降は新規作成されます。
+これは仕様であり、重複タイトルは別々のノートとして管理されます。
+
+---
+
+## Docker
+
+```bash
+# イメージをビルド
+docker build -t simplenote-backup .
+
+# バックアップを実行
+docker run --rm \
+  -e TOKEN=your_token \
+  -v /path/to/backup:/data \
+  simplenote-backup
+
+# 同期（Local → Remote）を実行
+docker run --rm \
+  -e TOKEN=your_token \
+  -v /path/to/backup:/data \
+  simplenote-backup python3 simplenote-import.py sync /data
+
+# プル（Remote → Local）を実行
+docker run --rm \
+  -e TOKEN=your_token \
+  -v /path/to/backup:/data \
+  simplenote-backup python3 simplenote-pull.py pull /data
+```
+
+---
+
+## ファイル構成
+
+```
+simplenote-backup/
+├── simplenote-backup.py    # フルバックアップ（Remote → Local）
+├── simplenote-import.py    # プッシュ同期（Local → Remote）
+├── simplenote-pull.py      # プル同期（Remote → Local, 差分）
+├── simplenote-classify.py  # 未分類ノートの自動タグ付け
+├── .env                    # トークン設定（要作成）
+├── .env.example            # 設定ファイルのテンプレート
+├── com.simplenote.backup.plist  # launchd設定
+├── Makefile                # makeコマンド定義
+├── Dockerfile              # Docker設定
+└── venv/                   # Python仮想環境
+```
+
+---
+
+## Makeコマンド
+
+```bash
+make run                    # バックアップ実行
+make run BACKUP_DIR=/path   # 指定ディレクトリにバックアップ
+make import IMPORT_DIR=/path  # インポート実行
+make classify-list          # 未分類ファイル一覧
+make classify-tags          # 既存タグ一覧
+make classify-json          # JSON出力
+```
+
+---
+
+## ライセンス
+
+MIT License
